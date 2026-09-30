@@ -199,7 +199,8 @@ const state = {
   editor: { nodes: {}, view: { x: 60, y: 60, k: 1 } },   // Node-Editor: Karten-Positionen und Ansicht
   stufe: 2,             // Ebenen-Stufe 1-4 (Abstand und Platz)
   spacing: 1,           // aktuell animierter Abstandsfaktor
-  filter: { q: '', st: new Set(), dev: new Set(), axes: { x: true, y: true, z: true } },
+  filter: { q: '', st: new Set(), dev: new Set(), linked: false, axes: { x: true, y: true, z: true } },
+  lens: { on: false, r: 170, x: 0, y: 0, set: new Set() },   // Objektiv: folgt dem Zeiger
   milestones: [],       // markierte Zwischenstände {id, name, note, at, metrics, extra?, snap?, seed?}
 };
 let linkSeq = 0;
@@ -291,18 +292,20 @@ function devCounts() {
 }
 
 /* ---------- Filter: Knoten dynamisch ein-/ausblenden ---------- */
-const filterActive = () => !!(state.filter.q.trim() || state.filter.st.size || state.filter.dev.size);
+const filterActive = () => !!(state.filter.q.trim() || state.filter.st.size || state.filter.dev.size || state.filter.linked);
 
 function computeFilter() {
   const f = state.filter, q = f.q.trim().toLowerCase(), act = filterActive();
   state.fmatchCount = 0;
+  const linkedIds = f.linked ? new Set(state.links.flatMap((l) => [l.a, l.b])) : null;
   const walk = (n) => {
     let keep = false;
     for (const k of n.kids) if (walk(k)) keep = true;
     const pass = act
       && (!q || n.d.n.toLowerCase().includes(q) || (n.d.p || '').toLowerCase().includes(q))
       && (!f.st.size || f.st.has(n.d.s))
-      && (!f.dev.size || f.dev.has(state.dev[n.id] || 'none'));
+      && (!f.dev.size || f.dev.has(state.dev[n.id] || 'none'))
+      && (!linkedIds || linkedIds.has(n.id));
     n.fmatch = pass;
     if (pass) state.fmatchCount++;
     n.fkeep = !act || keep || pass;
@@ -489,7 +492,7 @@ function labelText(n) {
 }
 function wantsLabel(n) {
   return n.depth <= state.labelDepth || n === state.selected || n === state.hit || n === pointer.hover
-    || (n.fmatch && state.fmatchCount <= 60);
+    || (n.fmatch && state.fmatchCount <= 60) || (state.lens.on && state.lens.set.has(n));
 }
 function updateLabel(n) {
   if (n.stamp !== state.stamp || !wantsLabel(n)) return disposeLabel(n);
@@ -584,6 +587,7 @@ async function buildAxes(saved) {
     state.filter.q = saved.filter?.q || '';
     state.filter.st = new Set(saved.filter?.st || []);
     state.filter.dev = new Set(saved.filter?.dev || []);
+    state.filter.linked = !!saved.filter?.linked;
     state.filter.axes = { x: true, y: true, z: true, ...(saved.filter?.axes || {}) };
     fltSync();
     state.home = saved.scale === S ? saved.home || null : null;
@@ -760,6 +764,7 @@ function onPointerDown(ev) {
 }
 
 function onPointerMove(ev) {
+  lensMove(ev);
   const d = pointer.down;
   if (!d) {
     if (ev.buttons) return;
@@ -942,6 +947,72 @@ $('sectorToggle').addEventListener('click', () => {
   markDirty();
 });
 
+
+/* ---------- Objektiv: Linse am Zeiger + Voreinstellungen ---------- */
+const lensRing = $('lensRing');
+let lensTick = 0;
+function lensMove(ev) {
+  if (!state.lens.on) return;
+  const r = canvas.getBoundingClientRect();
+  state.lens.x = ev.clientX - r.left;
+  state.lens.y = ev.clientY - r.top;
+  lensRing.style.left = state.lens.x + 'px';
+  lensRing.style.top = state.lens.y + 'px';
+}
+function lensSize() {
+  lensRing.style.width = lensRing.style.height = state.lens.r * 2 + 'px';
+}
+function setLens(on) {
+  state.lens.on = on;
+  lensRing.style.display = on ? 'block' : 'none';
+  $('lensToggle').setAttribute('aria-pressed', String(on));
+  $('lensR').hidden = !on;
+  if (on) {
+    const r = canvas.getBoundingClientRect();
+    state.lens.x = r.width / 2; state.lens.y = r.height / 2;
+    lensRing.style.left = state.lens.x + 'px'; lensRing.style.top = state.lens.y + 'px';
+    lensSize();
+    lensUpdate();
+  } else {
+    const old = [...state.lens.set];
+    state.lens.set = new Set();
+    for (const n of old) { disposeLabel(n); updateLabel(n); }
+  }
+}
+// Nur Knoten im Kreis (die 40 nächsten am Mittelpunkt) bekommen ihr Label.
+const lensV = new THREE.Vector3();
+function lensUpdate() {
+  const r = canvas.getBoundingClientRect(), L = state.lens, cand = [];
+  for (const a of state.axes) for (const n of a.visible) {
+    lensV.copy(n.world).project(camera);
+    if (lensV.z > 1) continue;
+    const d = Math.hypot(((lensV.x + 1) / 2) * r.width - L.x, ((1 - lensV.y) / 2) * r.height - L.y);
+    if (d <= L.r) cand.push([d, n]);
+  }
+  cand.sort((a, b) => a[0] - b[0]);
+  const next = new Set(cand.slice(0, 40).map((c) => c[1]));
+  const changed = [...next].filter((n) => !L.set.has(n)).concat([...L.set].filter((n) => !next.has(n)));
+  L.set = next;
+  for (const n of changed) { disposeLabel(n); updateLabel(n); }
+}
+$('lensToggle').addEventListener('click', () => setLens(!state.lens.on));
+$('lensR').addEventListener('input', (e) => { state.lens.r = +e.target.value; lensSize(); });
+
+const PRESETS = {
+  alle: () => {},
+  risiko: (f) => f.st.add('risiko'),
+  wartebereich: (f) => f.dev.add('wait'),
+  abgeschlossen: (f) => f.dev.add('done'),
+  verknuepft: (f) => { f.linked = true; },
+};
+document.querySelectorAll('#lensPresets button').forEach((b) => b.addEventListener('click', () => {
+  const f = state.filter;
+  f.q = ''; f.st.clear(); f.dev.clear(); f.linked = false;
+  PRESETS[b.dataset.preset](f);
+  document.querySelectorAll('#lensPresets button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  fltApply();
+}));
+
 /* ---------- Ebenen-Stufen 1-4 ---------- */
 function setStufe(n, instant = false) {
   state.stufe = Math.min(4, Math.max(1, n));
@@ -1025,6 +1096,7 @@ $('fltReset').addEventListener('click', () => {
   state.filter.q = '';
   state.filter.st.clear();
   state.filter.dev.clear();
+  state.filter.linked = false;
   state.filter.axes = { x: true, y: true, z: true };
   fltApply();
 });
@@ -1910,7 +1982,7 @@ function snapshot(nested = false) {
   return {
     v: 1, savedAt: new Date().toISOString(),
     scale: S, layout: LAYOUT, sectors: sectorPref.on, stufe: state.stufe, home: state.home,
-    filter: { q: state.filter.q, st: [...state.filter.st], dev: [...state.filter.dev], axes: state.filter.axes },
+    filter: { q: state.filter.q, st: [...state.filter.st], dev: [...state.filter.dev], linked: state.filter.linked, axes: state.filter.axes },
     dev: state.dev, editor: state.editor, obsidian: state.obsidian, links: state.links.map(({ a, b, label }) => ({ a, b, label })),
     lock: state.lock, depth: state.depth, labelDepth: state.labelDepth,
     expanded, offs, attach: state.attachLog, captured: [...state.captured],
@@ -1964,6 +2036,7 @@ addEventListener('keydown', (e) => {
   else if (['x', 'y', 'z'].includes(k)) { setLock(state.lock === k ? 'free' : k); markDirty(); }
   else if (e.key === 'f' && state.selected) focusOn(state.selected.world);
   else if (e.key.toLowerCase() === 'l') setLinkMode(!state.linkMode);
+  else if (e.key.toLowerCase() === 'o') setLens(!state.lens.on);
   else if (e.key === 'Escape') { setLinkMode(false); select(null); }
 });
 
@@ -2000,6 +2073,7 @@ renderer.setAnimationLoop(() => {
     if (k >= 1) fly = null;
   }
   controls.update();
+  if (state.lens.on && ++lensTick % 6 === 0) lensUpdate();
   if (ring.visible) ring.quaternion.copy(camera.quaternion);
   renderer.render(scene, camera);
 });

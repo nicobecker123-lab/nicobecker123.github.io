@@ -12,6 +12,11 @@ Start: Repo über GitHub Pages ausliefern und `/mindmap3d/` öffnen, lokal z. B.
 - **Tiefe:** klappt alle Knoten bis zur gewählten Tiefe auf. **Labels:** bis zu welcher Tiefe Beschriftungen stehen.
 - **Suche:** Name oder Pfad, „Weiter“ springt zum nächsten Treffer und klappt den Weg dorthin auf.
 
+## Objektiv
+- **Objektiv** (Taste O): Eine Linse folgt dem Mauszeiger, dunkelt alles außerhalb ab und beschriftet nur die (bis zu 40) Knoten darin. Der Regler daneben stellt die Linsengröße ein. Die Linse ändert nichts an den Daten, sie ist eine reine Blickhilfe.
+- **Objektive (Voreinstellungen)** im Filter-Panel: Alles, Risiko, Wartebereich, Abgeschlossen, Verknüpft. Sie setzen den Filter mit einem Klick.
+- Das ist meine Umsetzung der Idee „Objektiv/Filter". Das externe Neural HUD wurde nicht übernommen, weil die Datei nicht vorlag.
+
 ## Sektoren, Volumen-Packing und Raster
 - **Drei 120°-Sektoren:** Die drei Äste teilen den Würfel in drei gleiche Pyramiden um die Raumdiagonale. Ast X liegt bei x ≥ max(y, z), Ast Y bei y ≥ max(x, z), Ast Z bei z ≥ max(x, y). Jeder Ast kann seine Knoten frei in seinem Sektor positionieren. Knoten werden beim Ziehen in den Sektor geklemmt. **Sektoren** blendet die Begrenzungsflächen ein oder aus.
 - **Volumeneffizientes Layout:** Auf jeder Ebene füllen die Knoten das Sektor-Quadrat gleichmäßig. Dabei wird die Reihenfolge einer Hilbert-Kurve benutzt, damit Geschwister und Kinder räumlich zusammenbleiben. Die Ebenenposition ist die kleinste, bei der jeder Knoten seinen Mindestabstand hat, also das kleinste eingenommene Volumen. Die Zeile oben links zeigt Volumen je Ast, Knoten je Volumen, Rastergröße und Boxgröße.

@@ -12,7 +12,7 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:13px/1
 #app{display:grid;grid-template-rows:auto 1fr;height:100%}
 .bar{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;padding:8px 12px;background:var(--surface);border-bottom:1px solid var(--line)}
 .bar h1{margin:0 6px 0 0;font-size:15px;font-weight:600;letter-spacing:-.01em}
-.grp{display:inline-flex;align-items:center;gap:6px}
+.grp{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
 .grp>label{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
 button,input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 9px}
 button{cursor:pointer}
@@ -29,7 +29,11 @@ input[type=range]{padding:0;width:110px;accent-color:var(--accent)}
 input[type=search]{width:170px}
 .val{min-width:1.4em;text-align:right;font-variant-numeric:tabular-nums}
 .spacer{flex:1}
-#stage{position:relative;min-height:0}
+#stage{position:relative;min-height:0;overflow:hidden}
+#lensRing{position:absolute;display:none;pointer-events:none;border:2px solid var(--accent);border-radius:50%;box-shadow:0 0 0 9999px rgba(8,12,10,.55),inset 0 0 24px rgba(208,138,87,.25);transform:translate(-50%,-50%);width:340px;height:340px}
+#lensRing::before,#lensRing::after{content:'';position:absolute;background:var(--accent);opacity:.5}
+#lensRing::before{left:50%;top:calc(50% - 8px);width:1px;height:16px}
+#lensRing::after{top:50%;left:calc(50% - 8px);height:1px;width:16px}
 canvas{display:block;width:100%;height:100%;touch-action:none}
 #panel{position:absolute;top:10px;right:10px;width:300px;max-height:calc(58% - 20px);overflow:auto;background:color-mix(in srgb,var(--surface) 92%,transparent);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:none}
 #panel h2{margin:0 0 6px;font-size:15px;word-break:break-word}
@@ -172,6 +176,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
       <button type="button" id="edToggle" title="Verknüpfungen als Karten und Drähte bearbeiten, wie in n8n">Node-Editor</button>
       <button type="button" id="linkMode" aria-pressed="false" title="Taste L: von Knoten zu Knoten ziehen, um sie zu verknüpfen">Verknüpfen</button>
       <button type="button" id="linksToggle" title="Verknüpfungen bearbeiten">Verknüpfungen</button>
+      <span class="grp"><button type="button" id="lensToggle" aria-pressed="false" title="Taste O: Linse am Mauszeiger, dunkelt den Rest ab und beschriftet nur die Knoten darin">Objektiv</button><input id="lensR" type="range" min="60" max="420" value="170" hidden title="Linsengröße"></span>
       <button type="button" id="sectorToggle" aria-pressed="true" title="Die drei 120°-Sektoren der Äste ein-/ausblenden">Sektoren</button>
       <button type="button" id="fltToggle" title="Knoten dynamisch filtern">Filter</button>
       <button type="button" id="msToggle" title="Zwischenstände markieren und Fortschritt vergleichen">Meilensteine</button>
@@ -188,9 +193,10 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
   </div>
   <div id="stage">
     <canvas id="c"></canvas>
+    <div id="lensRing"></div>
     <div id="tip"></div>
     <div id="stat"></div>
-    <div id="hud"><b>Maus:</b> links ziehen = drehen · rechts ziehen = verschieben · Rad = Zoom · <b>Knoten:</b> ziehen = Ast bewegen · Klick = auf-/zuklappen · Doppelklick = fokussieren · Tasten 1–4 = Ebenen-Stufe · X/Y/Z = Achse sperren · <b>Verknüpfen:</b> Taste L oder Shift halten, dann von Knoten zu Knoten ziehen</div>
+    <div id="hud"><b>Maus:</b> links ziehen = drehen · rechts ziehen = verschieben · Rad = Zoom · <b>Knoten:</b> ziehen = Ast bewegen · Klick = auf-/zuklappen · Doppelklick = fokussieren · Taste O = Objektiv · Tasten 1–4 = Ebenen-Stufe · X/Y/Z = Achse sperren · <b>Verknüpfen:</b> Taste L oder Shift halten, dann von Knoten zu Knoten ziehen</div>
     <aside id="lex" hidden>
       <div class="row"><b>Lexikon</b><span id="lexProg"></span><button type="button" id="lexClose" aria-label="Schließen">×</button></div>
       <div class="row"><input id="lexQ" type="search" placeholder="Dokument oder Ordner filtern …" autocomplete="off"><label><input type="checkbox" id="lexOpen"> nur offene</label></div>
@@ -235,6 +241,14 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <aside id="flt" hidden>
       <div class="row"><b>Filter</b><span class="spacer"></span><button type="button" id="fltClose" aria-label="Schließen">×</button></div>
       <input id="fltQ" type="search" placeholder="Name oder Pfad enthält …" autocomplete="off">
+      <div class="k">Objektive (Voreinstellungen)</div>
+      <div id="lensPresets" class="chips">
+        <button type="button" class="chip" data-preset="alle" style="--c:#8FA0B3"><i></i>Alles</button>
+        <button type="button" class="chip" data-preset="risiko" style="--c:#E4674F"><i></i>Risiko</button>
+        <button type="button" class="chip" data-preset="wartebereich" style="--c:#D9A63B"><i></i>Wartebereich</button>
+        <button type="button" class="chip" data-preset="abgeschlossen" style="--c:#4DB57C"><i></i>Abgeschlossen</button>
+        <button type="button" class="chip" data-preset="verknuepft" style="--c:#F2C14E"><i></i>Verknüpft</button>
+      </div>
       <div class="k">Status / Typ</div>
       <div id="fltChips" class="chips"></div>
       <div class="k">Dev-Lifecycle</div>
