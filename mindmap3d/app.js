@@ -152,6 +152,7 @@ const state = {
   home: null,           // vom Nutzer fixierte Startansicht {p, t}
   links: [],            // freie Verknüpfungen [{id, a, b, label}] zwischen Knoten-IDs
   linkMode: false,
+  milestones: [],       // markierte Zwischenstände {id, name, note, at, metrics, extra?, snap?, seed?}
 };
 let linkSeq = 0;
 
@@ -297,6 +298,7 @@ async function buildAxes(saved) {
   state.captured = new Set();
   state.links = [];
   linkSeq = 0;
+  state.milestones = saved?.milestones ? [...saved.milestones] : [];
   state.selected = state.hit = null;
   for (const cfg of AXES) {
     const data = await loadJSON(cfg.source);
@@ -622,6 +624,7 @@ fileInput.addEventListener('change', async () => {
   } else {
     if (json.v !== 1) return toast('Keine Zustandsdatei dieser App');
     await buildAxes(json);
+    await ensureSeedMilestones();
     persist(json);
     toast('Zustand importiert');
   }
@@ -868,7 +871,7 @@ function lexStep(dir, capture) {
   lexGo(next);
 }
 
-$('lexToggle').addEventListener('click', () => { const h = $('lex').hidden; $('lex').hidden = !h; if (h) lexRender(); });
+$('lexToggle').addEventListener('click', () => { const h = $('lex').hidden; $('lex').hidden = !h; if (h) { $('ms').hidden = true; lexRender(); } });
 $('lexClose').addEventListener('click', () => { $('lex').hidden = true; });
 $('lexQ').addEventListener('input', () => { lex.shown = 300; lexRender(); });
 $('lexOpen').addEventListener('change', () => { lex.shown = 300; lexRender(); });
@@ -890,8 +893,152 @@ $('lexExport').addEventListener('click', () => {
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 });
 
+
+/* ---------- Meilensteine: Zwischenstände markieren, Fortschritt messen ---------- */
+const METRIC_LABELS = {
+  captured: 'Dokumente erfasst', docs: 'Dokumente gesamt', nodes: 'Knoten', links: 'Verknüpfungen',
+  moved: 'Verschobene Äste', attached: 'Angehängte Scans',
+};
+
+function currentMetrics() {
+  let nodes = 0, moved = 0;
+  for (const a of state.axes) for (const n of a.all) { nodes++; if (n.off.lengthSq() > 0) moved++; }
+  const docs = lex.entries.length;
+  const captured = lex.entries.filter((e) => state.captured.has(e.key)).length;
+  return { nodes, docs, captured, links: state.links.length, moved, attached: state.attachLog.length };
+}
+
+function markMilestone(name, note, auto = false) {
+  const snap = snapshot(true);
+  const m = {
+    id: 'ms-' + Date.now().toString(36), name, note, at: new Date().toISOString(), auto,
+    metrics: currentMetrics(),
+    // Vollständiger Zustand nur, solange er klein genug für den Browser-Speicher ist.
+    snap: JSON.stringify(snap).length <= 400000 ? snap : null,
+  };
+  state.milestones.push(m);
+  markDirty();
+  renderMilestones();
+  return m;
+}
+
+async function ensureSeedMilestones() {
+  try {
+    const seeds = await loadJSON('data/milestones.json');
+    for (const sd of seeds) if (!state.milestones.some((m) => m.id === sd.id)) state.milestones.push(sd);
+  } catch { /* Seeds sind optional */ }
+}
+
+const pct = (a, b) => (b ? ((a / b) * 100).toFixed(1).replace('.', ',') + ' %' : '–');
+const fmtDate = (iso) => new Date(iso).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' });
+
+function metricLine(m, prev) {
+  const wrap = document.createElement('div');
+  wrap.className = 'mets';
+  const chip = (label, value, delta) => {
+    const c = document.createElement('span');
+    c.textContent = `${label}: ${value}`;
+    if (typeof delta === 'number' && delta !== 0) {
+      const d = document.createElement('b');
+      d.className = delta > 0 ? 'up' : 'down';
+      d.textContent = ` ${delta > 0 ? '+' : ''}${delta}`;
+      c.append(d);
+    }
+    wrap.append(c);
+  };
+  const met = m.metrics || {};
+  for (const k of Object.keys(METRIC_LABELS)) {
+    if (met[k] === undefined || k === 'docs') continue;
+    const value = k === 'captured' ? `${met.captured}/${met.docs} (${pct(met.captured, met.docs)})` : met[k];
+    chip(METRIC_LABELS[k], value, prev?.metrics?.[k] !== undefined ? met[k] - prev.metrics[k] : undefined);
+  }
+  for (const [k, v] of Object.entries(m.extra || {})) chip(k, v);
+  return wrap;
+}
+
+function renderMilestones() {
+  if ($('ms').hidden) return;
+  const list = [...state.milestones].sort((a, b) => a.at.localeCompare(b.at));
+  const box = $('msList');
+  box.replaceChildren();
+
+  const cards = [];
+  const now = { id: 'now', name: 'Jetzt', note: 'Laufender Stand, noch nicht markiert', at: new Date().toISOString(), metrics: currentMetrics(), live: true };
+  const withMetrics = list.filter((m) => Object.keys(m.metrics || {}).length);
+  cards.push({ m: now, prev: withMetrics.at(-1) });
+  for (let i = list.length - 1; i >= 0; i--) {
+    const prev = list.slice(0, i).reverse().find((p) => Object.keys(p.metrics || {}).length && Object.keys(list[i].metrics || {}).length);
+    cards.push({ m: list[i], prev });
+  }
+
+  for (const { m, prev } of cards) {
+    const card = document.createElement('div');
+    card.className = 'card' + (m.live ? ' live' : '');
+    const head = document.createElement('div');
+    head.className = 'head';
+    const t = document.createElement('b');
+    t.textContent = m.name + (m.auto ? ' (automatisch)' : '');
+    const when = document.createElement('small');
+    when.textContent = m.live ? '' : fmtDate(m.at);
+    head.append(t, when);
+    card.append(head);
+    if (m.note) { const p = document.createElement('p'); p.textContent = m.note; card.append(p); }
+    if (m.metrics?.docs) {
+      const bar = document.createElement('div');
+      bar.className = 'bar2';
+      const fill = document.createElement('i');
+      fill.style.width = Math.min(100, (m.metrics.captured / m.metrics.docs) * 100) + '%';
+      bar.append(fill);
+      card.append(bar);
+    }
+    card.append(metricLine(m, prev));
+    if (!m.live) {
+      const act = document.createElement('div');
+      act.className = 'act';
+      if (m.snap) {
+        const load = document.createElement('button');
+        load.type = 'button';
+        load.textContent = 'Laden';
+        load.title = 'Diesen Zwischenstand wiederherstellen';
+        load.addEventListener('click', async () => {
+          if (!confirm(`Aktuellen Stand verlassen und „${m.name}“ laden?`)) return;
+          const keep = state.milestones;
+          await buildAxes(m.snap);
+          state.milestones = keep;
+          markDirty();
+          renderMilestones();
+          toast(`„${m.name}“ geladen`);
+        });
+        act.append(load);
+      }
+      if (!m.seed) {
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.textContent = 'Löschen';
+        del.addEventListener('click', () => { state.milestones = state.milestones.filter((x) => x !== m); markDirty(); renderMilestones(); });
+        act.append(del);
+      }
+      if (act.children.length) card.append(act);
+    }
+    box.append(card);
+  }
+}
+
+$('msToggle').addEventListener('click', () => {
+  const h = $('ms').hidden;
+  $('ms').hidden = !h;
+  if (h) { $('lex').hidden = true; renderMilestones(); }
+});
+$('msClose').addEventListener('click', () => { $('ms').hidden = true; });
+$('msAdd').addEventListener('click', () => {
+  const name = $('msName').value.trim() || `Zwischenstand ${new Date().toLocaleDateString('de-DE')}`;
+  markMilestone(name, $('msNote').value.trim());
+  $('msName').value = $('msNote').value = '';
+  toast(`Zwischenstand „${name}“ markiert. Mit „Zustand speichern“ sichern.`);
+});
+
 /* ---------- Zustand speichern / laden ---------- */
-function snapshot() {
+function snapshot(nested = false) {
   const expanded = [], offs = {};
   for (const a of state.axes) for (const n of a.all) {
     if (n.expanded) expanded.push(n.id);
@@ -902,6 +1049,7 @@ function snapshot() {
     scale: S, home: state.home, links: state.links.map(({ a, b, label }) => ({ a, b, label })),
     lock: state.lock, depth: state.depth, labelDepth: state.labelDepth,
     expanded, offs, attach: state.attachLog, captured: [...state.captured],
+    ...(nested ? {} : { milestones: state.milestones.filter((m) => !m.seed) }),
   };
 }
 function persist(snap) {
@@ -910,6 +1058,7 @@ function persist(snap) {
 let dirty = false;
 function markDirty() {
   dirty = true;
+  if (!$('ms').hidden) renderMilestones();
   $('save').textContent = 'Zustand speichern •';
 }
 function save() {
@@ -983,6 +1132,9 @@ controls.addEventListener('start', () => { fly = null; });
   if (saved && saved.v !== 1) saved = null;
   try {
     await buildAxes(saved);
+    await ensureSeedMilestones();
+    if (!saved && !state.milestones.some((m) => !m.seed)) markMilestone(`Zwischenstand ${new Date().toLocaleDateString('de-DE')} · Ausgangspunkt`, 'Automatisch beim ersten Öffnen markiert: Basis für den Fortschrittsvergleich.', true);
+    if (state.milestones.some((m) => m.auto)) { persist(snapshot()); dirty = false; $('save').textContent = 'Zustand speichern'; }
     if (saved) toast(`Gespeicherten Zustand geladen (${new Date(saved.savedAt).toLocaleString('de-DE')})`);
   } catch (e) {
     console.error(e);

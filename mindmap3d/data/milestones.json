@@ -1,0 +1,20 @@
+[
+  {
+    "id": "seed-nexus-alt",
+    "seed": true,
+    "name": "Nexus-Dashboard (alter Stand)",
+    "note": "Statische Liste aus dem Nexus-Hub vor ca. 2 Monaten, Datum geschätzt. Kein Live-Status, Ngrok statt Cloudflare, ohne Ornith/Ornet/TokenCut/Integrity Gate.",
+    "at": "2026-07-30T12:00:00",
+    "metrics": {},
+    "extra": { "Registry-Tools": 30, "Lokale Dashboards": 16, "Live-Status": "nein" }
+  },
+  {
+    "id": "seed-zustandskarte-2026-09-25",
+    "seed": true,
+    "name": "Zustandskarte 25.09.",
+    "note": "Ausgangsstand der Karte: State 1 als Tag eingefroren, 33 Listener ohne Unbekannte, Härtung der Dienste abgeschlossen.",
+    "at": "2026-09-25T18:55:00",
+    "metrics": { "nodes": 5193, "docs": 709, "captured": 0, "links": 0, "moved": 0, "attached": 0 },
+    "extra": { "Listener": 33, "Live-Dienste": 6, "Live-Status": "ja" }
+  }
+]

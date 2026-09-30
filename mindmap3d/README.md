@@ -15,6 +15,13 @@ Start: Repo über GitHub Pages ausliefern und `/mindmap3d/` öffnen, lokal z. B.
 - **Verknüpfungen** öffnet die Liste: Beschriftung setzen, Richtung umkehren (⇄), löschen (×), zur Verbindung fliegen.
 - Ist ein Endpunkt zugeklappt, endet die Linie am nächsten sichtbaren Vorfahren. Die Verknüpfungen werden mit dem Zustand gespeichert.
 
+## Meilensteine (Fortschritt messen)
+**Meilensteine** markiert Zwischenstände mit Name, Notiz, Datum und Kennzahlen: erfasste Dokumente (mit Prozent und Balken), Knoten, Verknüpfungen, verschobene Äste, angehängte Scans.
+- Die Karte **Jetzt** zeigt den laufenden Stand mit Differenz zum letzten Meilenstein (grün = plus).
+- **Laden** stellt einen Zwischenstand vollständig wieder her, sofern er klein genug für den Browser-Speicher ist. **Löschen** entfernt ihn.
+- Beim ersten Öffnen wird automatisch ein Ausgangspunkt markiert. `data/milestones.json` enthält feste Referenzstände (Zustandskarte 25.09., altes Nexus-Dashboard mit geschätztem Datum).
+- Meilensteine werden mit „Zustand speichern“ und beim Export gesichert.
+
 ## Startansicht
 **Startansicht setzen** fixiert die aktuelle Kameraposition. Nach „Zustand speichern“ startet die App immer dort, der Button **Ansicht** fliegt dorthin zurück.
 
