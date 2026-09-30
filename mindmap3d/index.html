@@ -176,6 +176,18 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #net code{font-family:ui-monospace,monospace;font-size:11.5px}
 #declutterToggle[aria-pressed=true]{background:var(--ink);color:var(--bg)}
 #alphaR{width:90px}
+#neuro{position:absolute;top:10px;left:10px;width:360px;max-height:calc(100% - 20px);overflow:auto;display:flex;flex-direction:column;gap:8px;background:color-mix(in srgb,var(--surface) 94%,transparent);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+#neuro[hidden]{display:none}
+#neuro .row{display:flex;gap:6px;align-items:center}
+#neuro .hint{margin:0;color:var(--muted);font-size:12px}
+#neuro .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+#neuroBars{display:grid;gap:5px}
+.nrow{display:grid;grid-template-columns:64px 1fr 34px;gap:8px;align-items:center;font-size:11.5px}
+.nlbl{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ntrack{height:7px;border-radius:4px;background:var(--line);overflow:hidden}
+.ntrack i{display:block;height:100%;width:0%;background:var(--c);transition:width .18s linear}
+.nrow b{font-variant-numeric:tabular-nums;color:var(--muted);text-align:right}
+#neuroMesh{width:100%;aspect-ratio:1;background:var(--bg);border:1px solid var(--line);border-radius:8px}
 @media (max-width:760px){#panel{width:auto;left:10px;top:auto;bottom:10px;max-height:45%}#hud{display:none}}
 </style>
 </head>
@@ -211,6 +223,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
       <span class="grp"><button type="button" id="jitToggle" aria-pressed="false" title="Taste J oder ^: Knoten entstehen, wenn du sie ansiehst, und verschwinden, wenn du wegschaust">JIT-Sicht</button><input id="jitR" type="range" min="80" max="600" value="260" hidden title="Reichweite der Sicht"></span>
       <span class="grp"><button type="button" id="lensToggle" aria-pressed="false" title="Taste O: Linse am Mauszeiger, dunkelt den Rest ab und beschriftet nur die Knoten darin">Objektiv</button><input id="lensR" type="range" min="60" max="420" value="170" hidden title="Linsengröße"></span>
       <button type="button" id="netToggle" title="nmap-Ergebnisse (Rechner und Ports) als Ast importieren">Netzwerk</button>
+      <button type="button" id="neuroToggle" title="Jede Status-Kategorie als eigener dynamischer Zustand, plus das daraus entstehende Verknüpfungsmuster">Neuronale Zustände</button>
       <span class="grp"><button type="button" id="declutterToggle" aria-pressed="true" title="Beschriftungen, die sich überdecken oder zu klein sind, ausblenden">Entzerren</button><label for="alphaR">Durchsicht</label><input id="alphaR" type="range" min="20" max="100" value="100" title="Knoten durchsichtig machen, um Überdeckungen aufzulösen"></span>
       <button type="button" id="xrVr" hidden title="Als VR-Tischmodell ansehen">VR</button><button type="button" id="xrAr" hidden title="Als AR-Tischmodell ansehen">AR</button>
       <button type="button" id="sectorToggle" aria-pressed="true" title="Die drei 120°-Sektoren der Äste ein-/ausblenden">Sektoren</button>
@@ -287,6 +300,13 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
       <p class="hint">nmap läuft nicht im Browser. <code>tools/Scan-OwnNetwork.ps1</code> startet es nur gegen <b>eigene</b> Geräte im privaten Netz (bis /24, nach Bestätigung) und schreibt eine XML-Datei.</p>
       <div class="row"><button type="button" id="netImport" class="primary">nmap-XML importieren …</button></div>
       <div class="row"><button type="button" id="netSample">Beispiel laden (erfundene Werte)</button></div>
+    </aside>
+    <aside id="neuro" hidden>
+      <div class="row"><b>Neuronale Zustände</b><span class="spacer"></span><button type="button" id="neuroClose" aria-label="Schließen">×</button></div>
+      <p class="hint">Jede Status-Kategorie („Axiom“) hat einen eigenen Aktivierungswert: steigt mit ihrem Anteil an sichtbaren Knoten und mit frischer Aktivität (Dev-Wechsel, neue Verknüpfung), klingt danach langsam ab. Keine Zufallswerte, alles aus dem echten Zustand berechnet.</p>
+      <div id="neuroBars"></div>
+      <div class="k">Muster (aus echten Verknüpfungen zwischen Kategorien)</div>
+      <svg id="neuroMesh" viewBox="0 0 200 200"></svg>
     </aside>
     <aside id="flt" hidden>
       <div class="row"><b>Filter</b><span class="spacer"></span><button type="button" id="fltClose" aria-label="Schließen">×</button></div>

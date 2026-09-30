@@ -21,6 +21,11 @@ Die Leiste unten (Klick öffnet Details) läuft ab dem Laden im Takt, ohne Trigg
 - Anfragen, Bestätigungen und Ergebnisse werden mit dem Zustand gespeichert und laufen in die Meilensteine ein.
 - Das Neural HUD (`systemos_neural_hud.html`) würfelt die Kohärenz mit `Math.random()` und löst nur per Knopf aus. Hier wird sie aus den Daten des Sandkastens berechnet. Das Mikrofon des HUD ist eine Attrappe und wurde nicht übernommen.
 
+## Neuronale Zustände
+Button **Neuronale Zustände**: Jede Status-Kategorie (Live, Risiko, Offen, Neu, Archiv, Info, Ordner, Datei, Kern, Aktiv — die „Axiome“) hat einen eigenen Aktivierungswert, wie ein Neuron.
+- **Dynamik:** Der Wert steigt schnell mit dem Anteil sichtbarer Knoten dieser Kategorie plus einem Schub bei frischer Aktivität (Dev-Stand geändert, neue Verknüpfung erstellt) und klingt danach langsam wieder ab (Leaky-Integrate, keine Zufallswerte). Läuft im Takt, unabhängig vom Panel.
+- **Muster:** Die Kategorien stehen kreisförmig angeordnet; eine Kante zwischen zwei Kategorien ist so stark, wie oft echte Verknüpfungen (`state.links`) Knoten dieser beiden Kategorien verbinden. Das ist ein aus den echten Daten entstehendes Netz, keine Illustration.
+
 ## Netzwerk (nmap)
 - nmap läuft nicht im Browser. **`tools/Scan-OwnNetwork.ps1`** startet es und schreibt eine XML-Datei (`nmap -oX`). Der Button **Netzwerk** importiert sie als Ast: Rechner, darunter ihre Ports mit Dienst und Status.
 - **Bewertung:** Offene Fernzugriffs- und Datendienste (SSH, RDP, SMB, Telnet, VNC, RPC, Datenbanken, Docker-API …) auf **anderen** Geräten sind `Risiko`, auf dem eigenen Rechner (127.x) nur `Info`. Gefilterte Ports sind `Offen`, andere offene Ports `Live`. Neue Risiko-Knoten ohne Dev-Stand senken die Kohärenz im Monitor, bis du sie in den Wartebereich stellst.

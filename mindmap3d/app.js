@@ -267,6 +267,7 @@ function setDev(n, key) {
     return toast(`Erst „${DEV[devIndex(cur) + 1].label}“ abschließen: Nichts springt ungeprüft auf „${DEV[devIndex(key)].label}“.`);
   }
   if (key) state.dev[n.id] = key; else delete state.dev[n.id];
+  neuroOnDev(n);
   syncDevShell(n);
   renderPanel(n);
   fltBuild();
@@ -1503,7 +1504,7 @@ $('fltReset').addEventListener('click', () => {
 });
 function toggleLeft(id, onOpen) {
   const el = $(id), open = el.hidden;
-  for (const x of ['lex', 'ms', 'flt', 'ob', 'net']) $(x).hidden = true;
+  for (const x of ['lex', 'ms', 'flt', 'ob', 'net', 'neuro']) $(x).hidden = true;
   el.hidden = !open;
   if (open && onOpen) onOpen();
 }
@@ -1575,6 +1576,7 @@ function dragWire(d, ev) {
 function addLink(a, b) {
   if (state.links.some((l) => l.a === a.id && l.b === b.id)) return toast('Diese Verknüpfung gibt es schon');
   state.links.push({ id: ++linkSeq, a: a.id, b: b.id, label: '' });
+  neuroOnLink(a, b);
   renderLinks();
   renderLinkPanel();
   markDirty();
@@ -2644,6 +2646,104 @@ setInterval(() => {
   if (++MON.tick % 4 === 0) { monCoherence(); }
   monRender();
 }, 250);
+
+/* ---------- Neuronale Zustände: jede Status-Kategorie als eigenes "Axiom" mit dynamischem Zustand ----------
+   Jede Kategorie aus STATUS (core, live, risiko, …) bekommt einen Aktivierungswert wie ein Neuron: er steigt
+   schnell mit dem Anteil sichtbarer Knoten dieser Kategorie plus einem Schub bei frischer Aktivität
+   (Dev-Wechsel, neue Verknüpfung, Governance-Ereignis dieser Achse) und klingt danach langsam wieder ab
+   (Leaky-Integrate-Charakteristik, keine Zufallswerte). Die Axiome zusammen ergeben ein Netz: eine Kante
+   zwischen zwei Kategorien ist so stark, wie oft echte Verknüpfungen (state.links) Knoten dieser beiden
+   Kategorien verbinden — das ist das "neuronale Muster", das aus den einzelnen Zuständen entsteht. */
+const AXIOMS = Object.keys(STATUS);
+const NEURO = { level: {}, boost: {}, mesh: {}, sig: '' };
+for (const k of AXIOMS) { NEURO.level[k] = 0; NEURO.boost[k] = 0; }
+
+function neuroPulse(statusKey) {
+  if (NEURO.boost[statusKey] !== undefined) NEURO.boost[statusKey] = 1;
+}
+// Echte Ereignisse speisen den Zustand: ein Dev-Wechsel oder eine neue Verknüpfung ist ein Reiz für die
+// Kategorie der beteiligten Knoten, kein erfundener Wert.
+const neuroOnDev = (n) => neuroPulse(n.d.s);
+const neuroOnLink = (a, b) => { neuroPulse(a.d.s); neuroPulse(b.d.s); };
+
+function neuroTick() {
+  const counts = {}, total = { n: 0 };
+  for (const a of state.axes) for (const n of a.visible) {
+    counts[n.d.s] = (counts[n.d.s] || 0) + 1;
+    total.n++;
+  }
+  for (const k of AXIOMS) {
+    const share = total.n ? (counts[k] || 0) / total.n : 0;
+    const target = Math.min(1, share * 3.2 + NEURO.boost[k]);
+    const rate = target > NEURO.level[k] ? 0.35 : 0.06;   // schnelles Auffeuern, langsames Abklingen
+    NEURO.level[k] += (target - NEURO.level[k]) * rate;
+    NEURO.boost[k] *= 0.9;
+    if (NEURO.boost[k] < 0.01) NEURO.boost[k] = 0;
+  }
+  const mesh = {};
+  for (const l of state.links) {
+    const na = nodeById(l.a), nb = nodeById(l.b);
+    if (!na || !nb) continue;
+    const key = [na.d.s, nb.d.s].sort().join('|');
+    mesh[key] = (mesh[key] || 0) + 1;
+  }
+  NEURO.mesh = mesh;
+  if (!$('neuro').hidden) neuroRender();
+}
+
+function neuroRender() {
+  const box = $('neuroBars');
+  if (!box.children.length) {
+    for (const k of AXIOMS) {
+      const row = document.createElement('div');
+      row.className = 'nrow';
+      row.style.setProperty('--c', STATUS[k]);
+      const label = document.createElement('span');
+      label.className = 'nlbl';
+      label.textContent = STATUS_TEXT[k] || k;
+      const track = document.createElement('div');
+      track.className = 'ntrack';
+      const fill = document.createElement('i');
+      fill.dataset.k = k;
+      track.append(fill);
+      const val = document.createElement('b');
+      val.dataset.v = k;
+      row.append(label, track, val);
+      box.append(row);
+    }
+  }
+  for (const k of AXIOMS) {
+    const lvl = NEURO.level[k];
+    box.querySelector(`i[data-k="${k}"]`).style.width = Math.round(lvl * 100) + '%';
+    box.querySelector(`b[data-v="${k}"]`).textContent = Math.round(lvl * 100) + '%';
+  }
+  neuroDrawMesh();
+}
+
+// Achsen kreisförmig anordnen, Kantenstärke = wie oft echte Verknüpfungen beide Kategorien verbinden.
+function neuroDrawMesh() {
+  const svg = $('neuroMesh'), R = 92, C = 100;
+  const pts = {};
+  AXIOMS.forEach((k, i) => {
+    const a = (i / AXIOMS.length) * Math.PI * 2 - Math.PI / 2;
+    pts[k] = [C + R * Math.cos(a), C + R * Math.sin(a)];
+  });
+  const maxW = Math.max(1, ...Object.values(NEURO.mesh));
+  const edges = Object.entries(NEURO.mesh).map(([key, n]) => {
+    const [a, b] = key.split('|');
+    const [x1, y1] = pts[a], [x2, y2] = pts[b];
+    const w = 0.6 + (n / maxW) * 3.4;
+    return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${STATUS[a]}" stroke-width="${w}" opacity="0.55"/>`;
+  }).join('');
+  const nodes = AXIOMS.map((k) => {
+    const [x, y] = pts[k], r = 3 + NEURO.level[k] * 7;
+    return `<circle cx="${x}" cy="${y}" r="${r}" fill="${STATUS[k]}" opacity="${0.35 + NEURO.level[k] * 0.65}"/>`;
+  }).join('');
+  svg.innerHTML = edges + nodes;
+}
+$('neuroToggle').addEventListener('click', () => toggleLeft('neuro', neuroRender));
+$('neuroClose').addEventListener('click', () => { $('neuro').hidden = true; });
+setInterval(neuroTick, 180);
 
 /* ---------- Zustand speichern / laden ---------- */
 function snapshot(nested = false) {
