@@ -30,6 +30,10 @@ Button **Lexikon**: listet jedes Dokument (Datei-Knoten) aller Achsen, nach Ordn
   python3 mindmap3d/tools/scan_folder.py <ordner> [<ordner> ...] -o scan.json --name Name
   ```
 
+  Unter Windows ohne Python: `tools/Start-OrnithKonzeptCrawler.ps1` als Datei speichern und mit
+  `powershell -ExecutionPolicy Bypass -File .\Start-OrnithKonzeptCrawler.ps1` starten (nicht in die Konsole einfügen);
+  es schreibt `konzeptordner_mindmap.json` (Baum) und ein Manifest mit SHA-256.
+
   In der App den Zielknoten wählen und **Ordner-Scan anhängen** klicken.
   `data/repos-scan.json` ist ein Scan der Repos dieses Kontos (Button **Repo-Scan laden**).
 
