@@ -846,6 +846,40 @@ function toggle(n) {
   markDirty();
 }
 
+/* ---------- Gamepad (aus MyIsland/VRSpace.tsx übertragen, an den freien 3D-Sandkasten angepasst) ----------
+   Linker Stick: bewegen (Vor/Zurück/Seite, relativ zur Blickrichtung). Rechter Stick: umsehen (Kugelkoordinaten
+   um controls.target). Knopf 0/1: hoch/runter. Knopf 5/7 (Schultertasten): schneller. Läuft nur auf dem
+   Desktop-Pfad, nicht während eines XR-Sitzung oder eines laufenden Kamera-Flugs. */
+const GP = { index: null };
+addEventListener('gamepadconnected', (e) => { GP.index = e.gamepad.index; toast(`Gamepad verbunden: ${e.gamepad.id}`); });
+addEventListener('gamepaddisconnected', (e) => { if (GP.index === e.gamepad.index) { GP.index = null; toast('Gamepad getrennt'); } });
+const gpMove = new THREE.Vector3(), gpFwd = new THREE.Vector3(), gpRight = new THREE.Vector3(), gpOffset = new THREE.Vector3(), gpSph = new THREE.Spherical();
+function gpFrame() {
+  if (GP.index === null || !navigator.getGamepads) return;
+  const gp = navigator.getGamepads()[GP.index];
+  if (!gp) return;
+  const dz = (v) => (Math.abs(v) > 0.18 ? v : 0);
+  const lx = dz(gp.axes[0] || 0), ly = dz(gp.axes[1] || 0), rx = dz(gp.axes[2] || 0), ry = dz(gp.axes[3] || 0);
+  const up = (gp.buttons[0]?.pressed ? 1 : 0) - (gp.buttons[1]?.pressed ? 1 : 0);
+  const boost = (gp.buttons[5]?.pressed || gp.buttons[7]?.pressed) ? 2.5 : 1;
+  if (lx || ly || up) {
+    const speed = THREE.MathUtils.clamp(camera.position.distanceTo(controls.target) * 0.03, 1.5, 40) * boost;
+    camera.getWorldDirection(gpFwd);
+    gpRight.crossVectors(gpFwd, camera.up).normalize();
+    gpMove.set(0, 0, 0).addScaledVector(gpFwd, -ly * speed).addScaledVector(gpRight, lx * speed).addScaledVector(camera.up, up * speed);
+    camera.position.add(gpMove);
+    controls.target.add(gpMove);
+  }
+  if (rx || ry) {
+    gpOffset.copy(camera.position).sub(controls.target);
+    gpSph.setFromVector3(gpOffset);
+    gpSph.theta -= rx * 0.045;
+    gpSph.phi = THREE.MathUtils.clamp(gpSph.phi + ry * 0.045, 0.02, Math.PI - 0.02);
+    gpOffset.setFromSpherical(gpSph);
+    camera.position.copy(controls.target).add(gpOffset);
+  }
+}
+
 /* ---------- Kamera-Flug ---------- */
 let fly = null;
 function flyTo(pos, target, ms = 650) {
@@ -2714,6 +2748,8 @@ renderer.setAnimationLoop(() => {
       camera.position.lerpVectors(fly.p0, fly.p1, e);
       controls.target.lerpVectors(fly.t0v, fly.t1, e);
       if (k >= 1) fly = null;
+    } else {
+      gpFrame();
     }
     controls.update();
   }

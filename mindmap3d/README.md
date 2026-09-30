@@ -11,6 +11,7 @@ Start: Repo über GitHub Pages ausliefern und `/mindmap3d/` öffnen, lokal z. B.
 - **Filter:** Name/Pfad-Text, Status-/Typ-Chips (Live, Risiko, Ordner, Datei …) und Achsen X/Y/Z einzeln ein- und ausblenden. Es bleiben die Treffer samt Pfad zur Wurzel sichtbar, der Rest fällt aus dem Layout, sodass der Platz neu verteilt wird. Nicht passende Pfadknoten sind kleiner dargestellt.
 - **Tiefe:** klappt alle Knoten bis zur gewählten Tiefe auf. **Labels:** bis zu welcher Tiefe Beschriftungen stehen.
 - **Suche:** Name oder Pfad, „Weiter“ springt zum nächsten Treffer und klappt den Weg dorthin auf.
+- **Gamepad** (aus MyIsland/VRSpace.tsx übertragen): linker Stick bewegt Kamera und Blickpunkt gemeinsam (relativ zur Blickrichtung), rechter Stick sieht sich um (dreht nur die Kamera um den Blickpunkt), Knopf A/0 hoch, B/1 runter, Schultertasten schneller. Verbinden/Trennen meldet sich per Hinweis. Läuft nur auf dem Desktop, nicht während eines Kamera-Flugs oder in AR/VR.
 
 ## Monitor (läuft dauerhaft)
 Die Leiste unten (Klick öffnet Details) läuft ab dem Laden im Takt, ohne Trigger und ohne Ausschalter. Sie zeigt nur an und führt nie etwas aus.
