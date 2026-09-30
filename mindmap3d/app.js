@@ -2741,9 +2741,106 @@ function neuroDrawMesh() {
   }).join('');
   svg.innerHTML = edges + nodes;
 }
+/* ---------- Funkstelle: zentraler Hub-Knoten (Mehrfachstecker-Bild) + echte Bluetooth-Kopplung ----------
+   Rein visuell: ein Punkt in der Boxmitte, an dem die drei Achsen als Linien zusammenlaufen, plus optional
+   gekoppelte Bluetooth-Geräte als eigene Knoten daran. Jedes Gerät wird einzeln über die native
+   Geräteauswahl des Browsers bestätigt (navigator.bluetooth.requestDevice) — kein Hintergrund-Scan, keine
+   WLAN-Anbindung (dafür gibt es im Browser keine API), kein automatisches erneutes Verbinden. */
+const hubGroup = new THREE.Group();
+hubGroup.visible = false;
+world.add(hubGroup);
+const hubCore = new THREE.Mesh(sphereGeo, new THREE.MeshBasicMaterial({ color: LINK_COLOR, transparent: true, opacity: 0.6 }));
+hubGroup.add(hubCore);
+const hubSpokes = new THREE.Group();
+hubGroup.add(hubSpokes);
+const BT = { devices: [] };   // { device, gatt, mesh, line, angle }
+
+function hubCenter() {
+  const c = (state.boxL || L) / 2;
+  return new THREE.Vector3(c, c, c);
+}
+function hubSpokeLine(p0, p1, color) {
+  const geo = new THREE.BufferGeometry().setFromPoints([p0, p1]);
+  return new THREE.Line(geo, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.5 }));
+}
+function hubTick() {
+  hubGroup.visible = !$('neuro').hidden;
+  if (!hubGroup.visible) return;
+  const center = hubCenter();
+  hubCore.position.copy(center);
+  const avg = AXIOMS.reduce((t, k) => t + NEURO.level[k], 0) / AXIOMS.length;
+  hubCore.scale.setScalar(1.4 + avg * 2.2);
+  hubCore.material.opacity = 0.35 + avg * 0.5;
+
+  while (hubSpokes.children.length) { const c = hubSpokes.children.pop(); c.geometry.dispose(); c.material.dispose(); }
+  for (const a of state.axes) {
+    if (a.root.stamp !== state.stamp) continue;
+    hubSpokes.add(hubSpokeLine(center, a.root.world, a.color));
+  }
+  BT.devices.forEach((d, i) => {
+    const angle = (i / Math.max(1, BT.devices.length)) * Math.PI * 2;
+    const r = 14 * S;
+    const p = center.clone().add(new THREE.Vector3(Math.cos(angle) * r, 6 * S, Math.sin(angle) * r));
+    d.mesh.position.copy(p);
+    d.mesh.scale.setScalar((d.gatt?.connected ? 1.3 : 0.9) * S * 0.6);
+    hubSpokes.add(hubSpokeLine(center, p, LINK_COLOR));
+  });
+}
+
+function btRenderList() {
+  const box = $('btList');
+  box.replaceChildren();
+  for (const d of BT.devices) {
+    const row = document.createElement('div');
+    row.className = 'btrow';
+    const dot = document.createElement('i');
+    dot.style.background = d.gatt?.connected ? '#4DB57C' : '#E4674F';
+    const name = document.createElement('span');
+    name.textContent = d.device.name || `Gerät ${d.device.id.slice(0, 8)}`;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = d.gatt?.connected ? 'Trennen' : 'entfernt';
+    btn.disabled = !d.gatt?.connected;
+    btn.addEventListener('click', () => btDisconnect(d));
+    row.append(dot, name, btn);
+    box.append(row);
+  }
+}
+function btDisconnect(d) {
+  try { d.gatt?.disconnect(); } catch { /* bereits getrennt */ }
+  BT.devices = BT.devices.filter((x) => x !== d);
+  hubGroup.remove(d.mesh);
+  d.mesh.material.dispose();
+  btRenderList();
+  toast(`Bluetooth: „${d.device.name || 'Gerät'}“ getrennt`);
+}
+async function btPair() {
+  try {
+    const device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true });
+    let gatt = null;
+    try { gatt = await device.gatt?.connect(); } catch { /* Kopplung ohne GATT-Verbindung bleibt sichtbar */ }
+    const mesh = new THREE.Mesh(sphereGeo, new THREE.MeshBasicMaterial({ color: 0x8FA0B3 }));
+    hubGroup.add(mesh);
+    const entry = { device, gatt, mesh };
+    device.addEventListener('gattserverdisconnected', () => { btRenderList(); });
+    BT.devices.push(entry);
+    btRenderList();
+    toast(`Bluetooth: „${device.name || 'Gerät'}“ gekoppelt`);
+  } catch (e) {
+    if (e?.name !== 'NotFoundError') toast('Bluetooth: ' + (e?.message || 'Kopplung abgebrochen'));
+  }
+}
+if (navigator.bluetooth) {
+  $('btPair').addEventListener('click', btPair);
+} else {
+  $('btPair').hidden = true;
+  $('btHint').textContent = 'Dieser Browser unterstützt Web Bluetooth nicht (nötig: Chrome/Edge über HTTPS oder localhost).';
+}
+
 $('neuroToggle').addEventListener('click', () => toggleLeft('neuro', neuroRender));
 $('neuroClose').addEventListener('click', () => { $('neuro').hidden = true; });
 setInterval(neuroTick, 180);
+setInterval(hubTick, 180);
 
 /* ---------- Zustand speichern / laden ---------- */
 function snapshot(nested = false) {
@@ -2882,7 +2979,7 @@ controls.addEventListener('start', () => { fly = null; });
     toast('Daten konnten nicht geladen werden: ' + e.message);
   }
   window.__sandbox = {
-    state, snapshot, relayout, select, camera, controls, focusOn, scene, world, renderer, XR, xrFrame,
+    state, snapshot, relayout, select, camera, controls, focusOn, scene, world, renderer, XR, xrFrame, hubGroup, hubCore, NEURO, BT,
     project(n) {
       const r = canvas.getBoundingClientRect(), v = n.world.clone().project(camera);
       return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height };

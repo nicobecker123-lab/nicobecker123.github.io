@@ -25,6 +25,8 @@ Die Leiste unten (Klick öffnet Details) läuft ab dem Laden im Takt, ohne Trigg
 Button **Neuronale Zustände**: Jede Status-Kategorie (Live, Risiko, Offen, Neu, Archiv, Info, Ordner, Datei, Kern, Aktiv — die „Axiome“) hat einen eigenen Aktivierungswert, wie ein Neuron.
 - **Dynamik:** Der Wert steigt schnell mit dem Anteil sichtbarer Knoten dieser Kategorie plus einem Schub bei frischer Aktivität (Dev-Stand geändert, neue Verknüpfung erstellt) und klingt danach langsam wieder ab (Leaky-Integrate, keine Zufallswerte). Läuft im Takt, unabhängig vom Panel.
 - **Muster:** Die Kategorien stehen kreisförmig angeordnet; eine Kante zwischen zwei Kategorien ist so stark, wie oft echte Verknüpfungen (`state.links`) Knoten dieser beiden Kategorien verbinden. Das ist ein aus den echten Daten entstehendes Netz, keine Illustration.
+- **Funkstelle (Hub):** Solange das Panel offen ist, erscheint ein Knoten in der Boxmitte, an dem die drei Achsen wie Kabel an einer Mehrfachsteckdose zusammenlaufen; seine Helligkeit folgt dem Mittelwert der Aktivierungswerte oben.
+- **Gerät koppeln:** In Browsern mit Web-Bluetooth-Unterstützung (Chrome/Edge, HTTPS oder localhost) öffnet der Knopf die native Geräteauswahl (`navigator.bluetooth.requestDevice`). Jedes Gerät wird einzeln per Klick bestätigt und erscheint als eigener Knoten am Hub, mit „Trennen“-Knopf. Kein Hintergrund-Scan, keine WLAN-Geräte (dafür gibt es im Browser keine API), kein automatisches erneutes Verbinden. Ohne Unterstützung bleibt der Knopf ausgeblendet.
 
 ## Netzwerk (nmap)
 - nmap läuft nicht im Browser. **`tools/Scan-OwnNetwork.ps1`** startet es und schreibt eine XML-Datei (`nmap -oX`). Der Button **Netzwerk** importiert sie als Ast: Rechner, darunter ihre Ports mit Dienst und Status.
