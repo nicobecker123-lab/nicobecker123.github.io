@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SystemOS 3D-Sandkasten</title>
+<script type="importmap">{"imports":{"three":"./vendor/three.module.min.js"}}</script>
+<style>
+:root{--bg:#0F1512;--surface:#141C18;--ink:#E2E8E3;--muted:#9AA69F;--line:#2B3731;--accent:#D08A57;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:13px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;overflow:hidden}
+#app{display:grid;grid-template-rows:auto 1fr;height:100%}
+.bar{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;padding:8px 12px;background:var(--surface);border-bottom:1px solid var(--line)}
+.bar h1{margin:0 6px 0 0;font-size:15px;font-weight:600;letter-spacing:-.01em}
+.grp{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.grp>label{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+button,input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 9px}
+button{cursor:pointer}
+button:hover{border-color:var(--accent)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+.seg button{border:0;border-radius:0}
+.seg button[aria-pressed=true]{background:var(--ink);color:var(--bg)}
+.seg button[data-lock=x][aria-pressed=true]{background:#E4674F;color:#0F1512}
+.seg button[data-lock=y][aria-pressed=true]{background:#4DB57C;color:#0F1512}
+.seg button[data-lock=z][aria-pressed=true]{background:#5FA6B8;color:#0F1512}
+button.primary{background:var(--accent);color:#0F1512;border-color:var(--accent);font-weight:600}
+input[type=range]{padding:0;width:110px;accent-color:var(--accent)}
+input[type=search]{width:170px}
+.val{min-width:1.4em;text-align:right;font-variant-numeric:tabular-nums}
+.spacer{flex:1}
+#stage{position:relative;min-height:0;overflow:hidden}
+#lensRing{position:absolute;display:none;pointer-events:none;border:2px solid var(--accent);border-radius:50%;box-shadow:0 0 0 9999px rgba(8,12,10,.55),inset 0 0 24px rgba(208,138,87,.25);transform:translate(-50%,-50%);width:340px;height:340px}
+#lensRing::before,#lensRing::after{content:'';position:absolute;background:var(--accent);opacity:.5}
+#lensRing::before{left:50%;top:calc(50% - 8px);width:1px;height:16px}
+#lensRing::after{top:50%;left:calc(50% - 8px);height:1px;width:16px}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#panel{position:absolute;top:10px;right:10px;width:300px;max-height:calc(58% - 20px);overflow:auto;background:color-mix(in srgb,var(--surface) 92%,transparent);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:none}
+#panel h2{margin:0 0 6px;font-size:15px;word-break:break-word}
+#panel .pill{display:inline-block;font:500 11px/1 ui-monospace,monospace;text-transform:uppercase;padding:4px 7px;border-radius:99px;border:1px solid var(--c);color:var(--c);margin-bottom:8px}
+#panel p{margin:6px 0}
+#panel .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-top:8px}
+#panel .path{font:11.5px ui-monospace,monospace;color:var(--muted);word-break:break-all}
+#panel a{color:var(--accent)}
+#stat{position:absolute;left:12px;top:8px;color:var(--muted);font:12px ui-monospace,monospace;pointer-events:none;background:color-mix(in srgb,var(--bg) 70%,transparent);padding:2px 8px;border-radius:6px;white-space:nowrap}
+#hud{position:absolute;left:12px;bottom:46px;color:var(--muted);font-size:12px;pointer-events:none;max-width:60%}
+#hud b{color:var(--ink);font-weight:500}
+#toast{position:absolute;left:50%;top:12px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:7px 12px;border-radius:7px;opacity:0;transition:opacity .25s;pointer-events:none}
+#toast.on{opacity:1}
+#tip{position:absolute;pointer-events:none;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:12px;display:none;max-width:320px;word-break:break-word}
+#lex{position:absolute;top:10px;left:10px;width:330px;max-height:calc(100% - 20px);display:flex;flex-direction:column;gap:8px;background:color-mix(in srgb,var(--surface) 94%,transparent);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+#lex[hidden]{display:none}
+#lex .row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+#lex .row b{font-size:14px}
+#lexProg{color:var(--muted);font-variant-numeric:tabular-nums;flex:1}
+#lexQ{flex:1;min-width:0}
+#lexList{overflow:auto;min-height:60px;border-top:1px solid var(--line)}
+#lexList .fold{position:sticky;top:0;background:var(--surface);color:var(--muted);font:11px ui-monospace,monospace;padding:6px 2px 3px;word-break:break-all}
+#lexList .doc{display:flex;gap:6px;align-items:flex-start;padding:2px 0}
+#lexList .doc input{margin-top:3px}
+#lexList .doc button{border:0;background:none;padding:1px 3px;text-align:left;word-break:break-all}
+#lexList .doc.cur button{color:var(--accent);font-weight:600}
+#lexList .doc.done button{color:var(--muted);text-decoration:line-through}
+#lexList .doc small{color:var(--muted);white-space:nowrap}
+@media (max-width:760px){#lex{width:auto;right:10px;max-height:42%}}
+#links{position:absolute;right:10px;bottom:10px;width:340px;max-height:38%;display:flex;flex-direction:column;gap:8px;background:color-mix(in srgb,var(--surface) 94%,transparent);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+#links[hidden]{display:none}
+#links .row{display:flex;gap:6px;align-items:center}
+#links .cnt{color:var(--muted)}
+#linksList{overflow:auto;border-top:1px solid var(--line);padding-top:6px}
+#linksList .hint{color:var(--muted);margin:0}
+#linksList .lnk{display:grid;grid-template-columns:1fr auto auto;gap:4px;margin-bottom:8px}
+#linksList .lnk .go{grid-column:1/-1;text-align:left;border:0;background:none;padding:0;color:#F2C14E;word-break:break-word}
+#linksList .lnk input{min-width:0}
+#linkMode[aria-pressed=true]{background:#F2C14E;color:#0F1512;border-color:#F2C14E}
+@media (max-width:760px){#links{width:auto;left:10px;max-height:34%}}
+#ms{position:absolute;top:10px;left:10px;width:360px;max-height:calc(100% - 20px);display:flex;flex-direction:column;gap:8px;background:color-mix(in srgb,var(--surface) 94%,transparent);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+#ms[hidden]{display:none}
+#ms .row{display:flex;gap:6px;align-items:center}
+#ms .row input{flex:1;min-width:0}
+#msList{overflow:auto;border-top:1px solid var(--line);padding-top:8px;display:grid;gap:8px}
+#msList .card{border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:grid;gap:5px}
+#msList .card.live{border-color:var(--accent)}
+#msList .head{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+#msList small{color:var(--muted)}
+#msList p{margin:0;color:var(--muted);font-size:12px}
+#msList .bar2{height:6px;background:var(--line);border-radius:3px;overflow:hidden}
+#msList .bar2 i{display:block;height:100%;background:var(--accent)}
+#msList .mets{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:12px}
+#msList .up{color:#4DB57C}
+#msList .down{color:#E4674F}
+#msList .act{display:flex;gap:6px}
+#msList .act button{padding:4px 8px}
+@media (max-width:760px){#ms{width:auto;right:10px;max-height:42%}}
+#flt{position:absolute;top:10px;left:10px;width:330px;max-height:calc(100% - 20px);overflow:auto;display:flex;flex-direction:column;gap:8px;background:color-mix(in srgb,var(--surface) 94%,transparent);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+#flt[hidden]{display:none}
+#flt .row{display:flex;gap:6px;align-items:center}
+#flt .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+#flt .hint{color:var(--muted);font-size:12px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:5px 9px}
+.chip i{width:9px;height:9px;border-radius:50%;background:var(--c);display:inline-block}
+.chip[aria-pressed=true]{border-color:var(--c);box-shadow:inset 0 0 0 1px var(--c)}
+@media (max-width:760px){#flt{width:auto;right:10px;max-height:42%}}
+#ed{position:absolute;inset:0;z-index:30;background:var(--bg);display:flex;flex-direction:column}
+#ed[hidden]{display:none}
+.edbar{display:flex;gap:8px;align-items:center;padding:8px 12px;background:var(--surface);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.edbar input{width:260px}
+#edInfo{color:var(--muted)}
+.edbody{position:relative;flex:1;min-height:0}
+#edView{position:absolute;inset:0;overflow:hidden;background-image:radial-gradient(var(--line) 1.2px,transparent 1.3px);background-size:24px 24px;cursor:grab;touch-action:none}
+#edWorld{position:absolute;left:0;top:0;transform-origin:0 0}
+.edn{position:absolute;width:210px;height:58px;background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--c);border-radius:8px;padding:6px 12px;cursor:move;user-select:none}
+.edn.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.edn .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.edn .m{color:var(--muted);font-size:11px;display:flex;align-items:center;gap:5px;white-space:nowrap;overflow:hidden}
+.edn .m i{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+.port{position:absolute;top:50%;width:14px;height:14px;margin-top:-7px;border-radius:50%;background:var(--bg);border:2px solid #F2C14E;cursor:crosshair}
+.port.in{left:-10px}.port.out{right:-9px}
+.port:hover{background:#F2C14E}
+.edx{position:absolute;top:-9px;right:6px;padding:0 6px;line-height:16px;font-size:13px;display:none}
+.edn:hover .edx{display:block}
+#edSvg .wire .hit{fill:none;stroke:transparent;stroke-width:14;cursor:pointer;pointer-events:stroke}
+#edSvg .wire .line{fill:none;stroke:#F2C14E;stroke-width:2.2;pointer-events:none}
+#edSvg .wire.sel .line{stroke:#fff;stroke-width:3.2}
+#edSvg .line.rubber{fill:none;stroke:#F2C14E;stroke-width:2;stroke-dasharray:6 4;pointer-events:none}
+#edSvg .lbl{fill:#F2C14E;font:12px system-ui,sans-serif;text-anchor:middle;paint-order:stroke;stroke:var(--bg);stroke-width:4px;pointer-events:none}
+#edResults[hidden]{display:none}
+#edResults{position:absolute;left:12px;top:8px;z-index:5;width:340px;max-height:50%;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px;display:grid;gap:2px}
+#edResults button{text-align:left;border:0;background:none;padding:5px 6px}
+#edResults button:hover{background:var(--bg)}
+.edhint{position:absolute;left:12px;bottom:8px;right:12px;color:var(--muted);font-size:12px;pointer-events:none}
+.devrow{display:flex;flex-wrap:wrap;gap:4px}
+.devrow button{padding:4px 8px}
+.devrow button[aria-pressed=true]{background:var(--c);color:#0F1512;border-color:var(--c)}
+.devrow button.past{border-color:var(--c);color:var(--c)}
+#ob{position:absolute;top:10px;left:10px;width:340px;max-height:calc(100% - 20px);overflow:auto;display:flex;flex-direction:column;gap:8px;background:color-mix(in srgb,var(--surface) 94%,transparent);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+#ob[hidden]{display:none}
+#ob .row{display:flex;gap:6px;align-items:center}
+#ob .fld{display:grid;gap:3px;color:var(--muted);font-size:12px}
+#ob .fld input{color:var(--ink)}
+#ob .chk{display:flex;gap:6px;align-items:flex-start;font-size:12px}
+#ob .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-top:4px}
+#ob .hint{margin:0;color:var(--muted);font-size:12px}
+#ob code{font-family:ui-monospace,monospace;font-size:11.5px}
+@media (max-width:760px){#ob{width:auto;right:10px;max-height:46%}}
+#mon{position:absolute;left:50%;bottom:8px;transform:translateX(-50%);z-index:4;max-width:calc(100% - 24px)}
+#monBar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center;padding:5px 10px;background:color-mix(in srgb,var(--surface) 90%,transparent)}
+#monBar .mp{font:500 12px ui-monospace,monospace;color:var(--muted);padding:2px 8px;border:1px solid var(--line);border-radius:99px;white-space:nowrap}
+#monBar .mp.on[data-m=kollaps]{color:#0F1512;background:#4DB57C;border-color:#4DB57C}
+#monBar .mp.on[data-m=kavitaet]{color:#0F1512;background:#D9A63B;border-color:#D9A63B}
+#monBar .mv{font:600 13px ui-monospace,monospace;font-variant-numeric:tabular-nums;min-width:3.4em;text-align:center}
+#monBar .mi{color:#4DB57C;border-color:#4DB57C}
+#monBar .mi.alert{color:#0F1512;background:#E4674F;border-color:#E4674F}
+#monp{position:absolute;left:50%;bottom:52px;transform:translateX(-50%);z-index:4;width:min(560px,calc(100% - 24px));max-height:52%;overflow:auto;background:color-mix(in srgb,var(--surface) 96%,transparent);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+#monp[hidden]{display:none}
+#monp .row{display:flex;gap:6px;align-items:center}
+#monp .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-top:4px}
+#monp .hint{margin:0;color:var(--muted);font-size:12px}
+#monp .mrow{text-align:left;border:0;background:none;padding:3px 4px;font-size:12px;word-break:break-word}
+#monp .mrow:hover{background:var(--bg)}
+#monp .mgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+#monp .mgrid div{border:1px solid var(--line);border-radius:6px;padding:4px 8px;display:grid}
+#monp .mgrid span{color:var(--muted);font-size:11px}
+#monp .ok{color:#4DB57C}#monp .warn{color:#D9A63B}#monp .bad{color:#E4674F}
+#monp .acard{border:1px solid var(--line);border-left:3px solid #d946ef;border-radius:6px;padding:6px 8px;display:grid;gap:4px}
+#monp .acard .row button{padding:3px 8px;font-size:12px}
+#monp .mlog{font:11px/1.5 ui-monospace,monospace;max-height:150px;overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px}
+#monp .irow{display:flex;gap:6px;align-items:center}
+#monp .irow .mrow{flex:1}
+#monp .irow button:not(.mrow){padding:2px 8px;font-size:11px}
+#net{position:absolute;top:10px;left:10px;width:340px;max-height:calc(100% - 20px);overflow:auto;display:flex;flex-direction:column;gap:8px;background:color-mix(in srgb,var(--surface) 94%,transparent);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+#net[hidden]{display:none}
+#net .row{display:flex;gap:6px;align-items:center}
+#net .hint{margin:0;color:var(--muted);font-size:12px}
+#net code{font-family:ui-monospace,monospace;font-size:11.5px}
+#declutterToggle[aria-pressed=true]{background:var(--ink);color:var(--bg)}
+#alphaR{width:90px}
+#neuro{position:absolute;top:10px;left:10px;width:360px;max-height:calc(100% - 20px);overflow:auto;display:flex;flex-direction:column;gap:8px;background:color-mix(in srgb,var(--surface) 94%,transparent);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+#neuro[hidden]{display:none}
+#neuro .row{display:flex;gap:6px;align-items:center}
+#neuro .hint{margin:0;color:var(--muted);font-size:12px}
+#neuro .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+#neuroBars{display:grid;gap:5px}
+.nrow{display:grid;grid-template-columns:64px 1fr 34px;gap:8px;align-items:center;font-size:11.5px}
+.nlbl{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ntrack{height:7px;border-radius:4px;background:var(--line);overflow:hidden}
+.ntrack i{display:block;height:100%;width:0%;background:var(--c);transition:width .18s linear}
+.nrow b{font-variant-numeric:tabular-nums;color:var(--muted);text-align:right}
+#neuroMesh{width:100%;aspect-ratio:1;background:var(--bg);border:1px solid var(--line);border-radius:8px}
+#btPair[hidden]{display:none}
+#btList{display:grid;gap:5px}
+.btrow{display:flex;align-items:center;gap:8px;font-size:12px;border:1px solid var(--line);border-radius:6px;padding:5px 8px}
+.btrow i{width:8px;height:8px;border-radius:50%;background:#8FA0B3;flex:none}
+.btrow span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.btrow button{padding:3px 8px;font-size:11px}
+@media (max-width:760px){#panel{width:auto;left:10px;top:auto;bottom:10px;max-height:45%}#hud{display:none}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="bar">
+    <h1>SystemOS 3D-Sandkasten</h1>
+    <div class="grp"><label>Bewegen</label>
+      <div class="seg" id="lock" role="group" aria-label="Bewegungsachse">
+        <button type="button" data-lock="free" aria-pressed="true" title="Frei">Frei</button>
+        <button type="button" data-lock="x" aria-pressed="false" title="Taste X">X</button>
+        <button type="button" data-lock="y" aria-pressed="false" title="Taste Y">Y</button>
+        <button type="button" data-lock="z" aria-pressed="false" title="Taste Z">Z</button>
+      </div>
+    </div>
+    <div class="grp"><label>Ebenen</label>
+      <div class="seg" id="stufe" role="group" aria-label="Ebenen-Stufe">
+        <button type="button" data-stufe="1" aria-pressed="false" title="Taste 1: kompakt">1</button>
+        <button type="button" data-stufe="2" aria-pressed="true" title="Taste 2: normal">2</button>
+        <button type="button" data-stufe="3" aria-pressed="false" title="Taste 3: weit">3</button>
+        <button type="button" data-stufe="4" aria-pressed="false" title="Taste 4: sehr weit">4</button>
+      </div>
+    </div>
+    <div class="grp"><label for="depth">Tiefe</label><input id="depth" type="range" min="0" max="8" value="2"><span class="val" id="depthV">2</span></div>
+    <div class="grp"><label for="labelDepth">Labels</label><input id="labelDepth" type="range" min="0" max="8" value="1"><span class="val" id="labelV">1</span></div>
+    <div class="grp"><input id="q" type="search" placeholder="Knoten suchen …" autocomplete="off"><button type="button" id="qNext">Weiter</button></div>
+    <span class="spacer"></span>
+    <div class="grp">
+      <button type="button" id="obToggle" title="Obsidian-Vault einlesen, Wikilinks übernehmen, Notizen exportieren">Obsidian</button>
+      <button type="button" id="edToggle" title="Verknüpfungen als Karten und Drähte bearbeiten, wie in n8n">Node-Editor</button>
+      <button type="button" id="linkMode" aria-pressed="false" title="Taste L: von Knoten zu Knoten ziehen, um sie zu verknüpfen">Verknüpfen</button>
+      <button type="button" id="linksToggle" title="Verknüpfungen bearbeiten">Verknüpfungen</button>
+      <span class="grp"><button type="button" id="jitToggle" aria-pressed="false" title="Taste J oder ^: Knoten entstehen, wenn du sie ansiehst, und verschwinden, wenn du wegschaust">JIT-Sicht</button><input id="jitR" type="range" min="80" max="600" value="260" hidden title="Reichweite der Sicht"></span>
+      <span class="grp"><button type="button" id="lensToggle" aria-pressed="false" title="Taste O: Linse am Mauszeiger, dunkelt den Rest ab und beschriftet nur die Knoten darin">Objektiv</button><input id="lensR" type="range" min="60" max="420" value="170" hidden title="Linsengröße"></span>
+      <button type="button" id="netToggle" title="nmap-Ergebnisse (Rechner und Ports) als Ast importieren">Netzwerk</button>
+      <button type="button" id="neuroToggle" title="Jede Status-Kategorie als eigener dynamischer Zustand, plus das daraus entstehende Verknüpfungsmuster">Neuronale Zustände</button>
+      <span class="grp"><button type="button" id="declutterToggle" aria-pressed="true" title="Beschriftungen, die sich überdecken oder zu klein sind, ausblenden">Entzerren</button><label for="alphaR">Durchsicht</label><input id="alphaR" type="range" min="20" max="100" value="100" title="Knoten durchsichtig machen, um Überdeckungen aufzulösen"></span>
+      <button type="button" id="xrVr" hidden title="Als VR-Tischmodell ansehen">VR</button><button type="button" id="xrAr" hidden title="Als AR-Tischmodell ansehen">AR</button>
+      <button type="button" id="sectorToggle" aria-pressed="true" title="Die drei 120°-Sektoren der Äste ein-/ausblenden">Sektoren</button>
+      <button type="button" id="fltToggle" title="Knoten dynamisch filtern">Filter</button>
+      <button type="button" id="msToggle" title="Zwischenstände markieren und Fortschritt vergleichen">Meilensteine</button>
+      <button type="button" id="lexToggle" title="Alle Dokumente erfassen, Schritt für Schritt">Lexikon</button>
+      <button type="button" id="attach" title="JSON aus tools/scan_folder.py an den gewählten Knoten hängen">Ordner-Scan anhängen</button>
+      <button type="button" id="attachRepos" title="Repo-Scan (data/repos-scan.json) an den gewählten Knoten hängen">Repo-Scan laden</button>
+      <button type="button" id="resetPos" title="Alle verschobenen Äste zurücksetzen">Positionen zurücksetzen</button>
+      <button type="button" id="fit" title="Zur Startansicht">Ansicht</button>
+      <button type="button" id="setHome" title="Aktuelle Kameraposition als Startansicht fixieren">Startansicht setzen</button>
+      <button type="button" id="export">Export</button>
+      <button type="button" id="import">Import</button>
+      <button type="button" id="save" class="primary" title="Strg+S">Zustand speichern</button>
+    </div>
+  </div>
+  <div id="stage">
+    <canvas id="c"></canvas>
+    <div id="lensRing"></div>
+    <div id="monp" hidden></div>
+    <div id="mon"><button type="button" id="monBar" data-mode="kollaps" title="Dauerhaft laufende Prüfung. Klicken für Details">
+      <span class="mp" data-m="kollaps">[+] WcT-Kollaps &gt; 85 %</span>
+      <span class="mp" data-m="kavitaet">[~] Divergenz-Kavität &lt; 70 %</span>
+      <span id="monVal" class="mv">–</span>
+      <span id="monIntent" class="mp mi">[!] CreoAnalyze · ruhig</span>
+    </button></div>
+    <div id="tip"></div>
+    <div id="stat"></div>
+    <div id="hud"><b>Maus:</b> links ziehen = drehen · rechts ziehen = verschieben · Rad = Zoom · <b>Knoten:</b> ziehen = Ast bewegen · Klick = auf-/zuklappen · Doppelklick = fokussieren · Taste J / ^ = JIT-Sicht · Taste O = Objektiv · Tasten 1–4 = Ebenen-Stufe · X/Y/Z = Achse sperren · <b>Verknüpfen:</b> Taste L oder Shift halten, dann von Knoten zu Knoten ziehen · <b>Gamepad:</b> linker Stick = bewegen, rechter Stick = umsehen, A/B = hoch/runter, Schultertasten = schneller</div>
+    <aside id="lex" hidden>
+      <div class="row"><b>Lexikon</b><span id="lexProg"></span><button type="button" id="lexClose" aria-label="Schließen">×</button></div>
+      <div class="row"><input id="lexQ" type="search" placeholder="Dokument oder Ordner filtern …" autocomplete="off"><label><input type="checkbox" id="lexOpen"> nur offene</label></div>
+      <div class="row"><button type="button" id="lexPrev">‹ Zurück</button><button type="button" id="lexDone" class="primary">Erfassen &amp; weiter</button><button type="button" id="lexSkip">Weiter ›</button></div>
+      <div id="lexList"></div>
+      <div class="row"><button type="button" id="lexExport">Als Markdown exportieren</button></div>
+    </aside>
+    <section id="ed" hidden aria-label="Node-Editor">
+      <div class="edbar">
+        <b>Node-Editor</b>
+        <input id="edQ" type="search" placeholder="Knoten suchen und hinzufügen …" autocomplete="off">
+        <button type="button" id="edAddSel" title="Den in 3D gewählten Knoten als Karte hinzufügen">+ Auswahl</button>
+        <button type="button" id="edAddKids" title="Gewählten Knoten samt Kindern hinzufügen">+ mit Kindern</button>
+        <button type="button" id="edLayout">Auto-Anordnen</button>
+        <button type="button" id="edFit">Alles zeigen</button>
+        <span class="spacer"></span>
+        <span id="edInfo"></span>
+        <button type="button" id="edClose" class="primary">Zurück zu 3D</button>
+      </div>
+      <div class="edbody">
+        <div id="edResults" hidden></div>
+        <div id="edView">
+          <div id="edWorld">
+            <svg id="edSvg" width="1" height="1" style="overflow:visible"><defs><marker id="edArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#F2C14E"/></marker></defs><g id="edWires"></g></svg>
+          </div>
+        </div>
+        <div class="edhint">Karte ziehen: verschieben · Rad: Zoom · Vom Port (Kreis) zu einer anderen Karte ziehen: verbinden · Draht anklicken + Entf: löschen · Doppelklick auf Draht: beschriften · Doppelklick auf Karte: in 3D zeigen</div>
+      </div>
+    </section>
+    <aside id="ob" hidden>
+      <div class="row"><b>Obsidian</b><span class="spacer"></span><button type="button" id="obClose" aria-label="Schließen">×</button></div>
+      <label class="fld">Vault-Name (für „In Obsidian öffnen“)<input id="obVault" type="text" placeholder="Sy0sObsidian" autocomplete="off"></label>
+      <label class="fld">Export-Ordner im Vault<input id="obFolder" type="text" placeholder="SystemOS-Mindmap" autocomplete="off"></label>
+      <label class="chk"><input id="obLinks" type="checkbox"> <code>[[Wikilinks]]</code> beim Import als Verknüpfungen übernehmen</label>
+      <div class="k">Import</div>
+      <p class="hint">Liest alle Notizen des Vault-Ordners (ohne <code>.obsidian</code>, <code>.git</code>, <code>.trash</code>) als Ast unter den gewählten Knoten. Bis 3000 Notizen und 400 Verknüpfungen.</p>
+      <div class="row"><button type="button" id="obImport">Vault importieren …</button></div>
+      <div class="k">Export</div>
+      <p class="hint">Schreibt eine Notiz je Knoten mit Tags, Status, Dev-Stand und <code>[[Links]]</code>. Gewählter Knoten samt Unterbaum, sonst der bearbeitete Stand. Es wird nur der Export-Ordner angelegt, vorhandene Notizen mit gleichem Namen werden überschrieben.</p>
+      <div class="row"><button type="button" id="obExport" class="primary">Nach Obsidian exportieren …</button></div>
+    </aside>
+    <aside id="net" hidden>
+      <div class="row"><b>Netzwerk (nmap)</b><span class="spacer"></span><button type="button" id="netClose" aria-label="Schließen">×</button></div>
+      <p class="hint">Zeigt nmap-Ergebnisse als Ast: Rechner, darunter ihre Ports mit Dienst und Status. Offene Fernzugriffs- und Datendienste auf anderen Geräten (SSH, RDP, SMB, Telnet, VNC, Datenbanken …) sind als <b>Risiko</b> markiert, auf dem eigenen Rechner (127.x) nur als Info.</p>
+      <p class="hint">nmap läuft nicht im Browser. <code>tools/Scan-OwnNetwork.ps1</code> startet es nur gegen <b>eigene</b> Geräte im privaten Netz (bis /24, nach Bestätigung) und schreibt eine XML-Datei.</p>
+      <div class="row"><button type="button" id="netImport" class="primary">nmap-XML importieren …</button></div>
+      <div class="row"><button type="button" id="netSample">Beispiel laden (erfundene Werte)</button></div>
+    </aside>
+    <aside id="neuro" hidden>
+      <div class="row"><b>Neuronale Zustände</b><span class="spacer"></span><button type="button" id="neuroClose" aria-label="Schließen">×</button></div>
+      <p class="hint">Jede Status-Kategorie („Axiom“) hat einen eigenen Aktivierungswert: steigt mit ihrem Anteil an sichtbaren Knoten und mit frischer Aktivität (Dev-Wechsel, neue Verknüpfung), klingt danach langsam ab. Keine Zufallswerte, alles aus dem echten Zustand berechnet.</p>
+      <div id="neuroBars"></div>
+      <div class="k">Muster (aus echten Verknüpfungen zwischen Kategorien)</div>
+      <svg id="neuroMesh" viewBox="0 0 200 200"></svg>
+      <div class="k">Funkstelle (Hub in der 3D-Ansicht)</div>
+      <p class="hint">Ein Knoten in der Boxmitte, an dem die drei Achsen wie Kabel an einer Mehrfachsteckdose zusammenlaufen; seine Helligkeit folgt dem Mittelwert der Balken oben. Sichtbar, solange dieses Panel offen ist.</p>
+      <div class="row"><button type="button" id="btPair">Gerät koppeln …</button></div>
+      <p class="hint" id="btHint">Öffnet die Bluetooth-Geräteauswahl deines Browsers. Jedes Gerät bestätigst du einzeln per Klick — kein Scan der Umgebung im Hintergrund, keine WLAN-Geräte.</p>
+      <div id="btList"></div>
+    </aside>
+    <aside id="flt" hidden>
+      <div class="row"><b>Filter</b><span class="spacer"></span><button type="button" id="fltClose" aria-label="Schließen">×</button></div>
+      <input id="fltQ" type="search" placeholder="Name oder Pfad enthält …" autocomplete="off">
+      <div class="k">Objektive (Voreinstellungen)</div>
+      <div id="lensPresets" class="chips">
+        <button type="button" class="chip" data-preset="alle" style="--c:#8FA0B3"><i></i>Alles</button>
+        <button type="button" class="chip" data-preset="risiko" style="--c:#E4674F"><i></i>Risiko</button>
+        <button type="button" class="chip" data-preset="wartebereich" style="--c:#D9A63B"><i></i>Wartebereich</button>
+        <button type="button" class="chip" data-preset="abgeschlossen" style="--c:#4DB57C"><i></i>Abgeschlossen</button>
+        <button type="button" class="chip" data-preset="verknuepft" style="--c:#F2C14E"><i></i>Verknüpft</button>
+      </div>
+      <div class="k">Status / Typ</div>
+      <div id="fltChips" class="chips"></div>
+      <div class="k">Dev-Lifecycle</div>
+      <div id="fltDev" class="chips"></div>
+      <div class="k">Achsen</div>
+      <div id="fltAxes" class="chips">
+        <button type="button" class="chip" data-axis="x" style="--c:#E4674F" aria-pressed="true"><i></i>X</button>
+        <button type="button" class="chip" data-axis="y" style="--c:#4DB57C" aria-pressed="true"><i></i>Y</button>
+        <button type="button" class="chip" data-axis="z" style="--c:#5FA6B8" aria-pressed="true"><i></i>Z</button>
+      </div>
+      <div id="fltInfo" class="hint"></div>
+      <div class="row"><button type="button" id="fltReset">Filter zurücksetzen</button></div>
+    </aside>
+    <aside id="ms" hidden>
+      <div class="row"><b>Meilensteine</b><span class="spacer"></span><button type="button" id="msClose" aria-label="Schließen">×</button></div>
+      <div class="row"><input id="msName" type="text" placeholder="Name des Zwischenstands" maxlength="60"><button type="button" id="msAdd" class="primary">Markieren</button></div>
+      <input id="msNote" type="text" placeholder="Notiz (optional)" maxlength="200">
+      <div id="msList"></div>
+    </aside>
+    <aside id="links" hidden>
+      <div class="row"><b>Verknüpfungen</b><span id="linksCount" class="cnt"></span><span class="spacer"></span><button type="button" id="linksClose" aria-label="Schließen">×</button></div>
+      <div id="linksList"></div>
+    </aside>
+    <aside id="panel" aria-live="polite"></aside>
+    <div id="toast"></div>
+  </div>
+</div>
+<input id="obDir" type="file" webkitdirectory multiple hidden>
+<input id="file" type="file" accept="application/json,.json" hidden>
+<script type="module" src="app.js"></script>
+</body>
+</html>
