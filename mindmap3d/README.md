@@ -20,6 +20,14 @@ Die Leiste unten (Klick öffnet Details) läuft ab dem Laden im Takt, ohne Trigg
 - Anfragen, Bestätigungen und Ergebnisse werden mit dem Zustand gespeichert und laufen in die Meilensteine ein.
 - Das Neural HUD (`systemos_neural_hud.html`) würfelt die Kohärenz mit `Math.random()` und löst nur per Knopf aus. Hier wird sie aus den Daten des Sandkastens berechnet. Das Mikrofon des HUD ist eine Attrappe und wurde nicht übernommen.
 
+## JIT-Sicht (Knoten entstehen nach Blick)
+**JIT-Sicht** (Taste J oder ^) erzeugt Details erst, wenn du sie ansiehst, und läuft im Takt, solange der Schalter an ist.
+- Ein zugeklappter Knoten klappt auf, wenn er im Bild liegt und nah genug ist. Die Bildmitte zählt mehr als der Rand. Neue Knoten wachsen ein.
+- Aufgeklappte Knoten, die weit weg oder außerhalb des Bildes liegen, klappen wieder zu. Von Hand geöffnete Knoten, der gewählte Knoten und sein Pfad bleiben stehen.
+- Es werden höchstens 2500 Knoten gleichzeitig gezeichnet, so bleibt auch ein Scan mit sehr vielen Dateien flüssig. Die nächsten 60 Knoten in Reichweite bekommen ihr Label.
+- Der Regler daneben stellt die Reichweite ein. Die Zeile oben links zählt, wie viele Knoten erzeugt und verworfen wurden.
+- Bei aktivem Filter pausiert die JIT-Sicht, weil dann der Filter bestimmt, was sichtbar ist. Beim Einschalten klappt alles Weitentfernte zu. Danach stellt der Regler „Tiefe“ die Ansicht wieder her.
+
 ## Objektiv
 - **Objektiv** (Taste O): Eine Linse folgt dem Mauszeiger, dunkelt alles außerhalb ab und beschriftet nur die (bis zu 40) Knoten darin. Der Regler daneben stellt die Linsengröße ein. Die Linse ändert nichts an den Daten, sie ist eine reine Blickhilfe.
 - **Objektive (Voreinstellungen)** im Filter-Panel: Alles, Risiko, Wartebereich, Abgeschlossen, Verknüpft. Sie setzen den Filter mit einem Klick.

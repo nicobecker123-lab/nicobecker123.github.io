@@ -201,6 +201,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
       <button type="button" id="edToggle" title="Verknüpfungen als Karten und Drähte bearbeiten, wie in n8n">Node-Editor</button>
       <button type="button" id="linkMode" aria-pressed="false" title="Taste L: von Knoten zu Knoten ziehen, um sie zu verknüpfen">Verknüpfen</button>
       <button type="button" id="linksToggle" title="Verknüpfungen bearbeiten">Verknüpfungen</button>
+      <span class="grp"><button type="button" id="jitToggle" aria-pressed="false" title="Taste J oder ^: Knoten entstehen, wenn du sie ansiehst, und verschwinden, wenn du wegschaust">JIT-Sicht</button><input id="jitR" type="range" min="80" max="600" value="260" hidden title="Reichweite der Sicht"></span>
       <span class="grp"><button type="button" id="lensToggle" aria-pressed="false" title="Taste O: Linse am Mauszeiger, dunkelt den Rest ab und beschriftet nur die Knoten darin">Objektiv</button><input id="lensR" type="range" min="60" max="420" value="170" hidden title="Linsengröße"></span>
       <button type="button" id="sectorToggle" aria-pressed="true" title="Die drei 120°-Sektoren der Äste ein-/ausblenden">Sektoren</button>
       <button type="button" id="fltToggle" title="Knoten dynamisch filtern">Filter</button>
@@ -228,7 +229,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     </button></div>
     <div id="tip"></div>
     <div id="stat"></div>
-    <div id="hud"><b>Maus:</b> links ziehen = drehen · rechts ziehen = verschieben · Rad = Zoom · <b>Knoten:</b> ziehen = Ast bewegen · Klick = auf-/zuklappen · Doppelklick = fokussieren · Taste O = Objektiv · Tasten 1–4 = Ebenen-Stufe · X/Y/Z = Achse sperren · <b>Verknüpfen:</b> Taste L oder Shift halten, dann von Knoten zu Knoten ziehen</div>
+    <div id="hud"><b>Maus:</b> links ziehen = drehen · rechts ziehen = verschieben · Rad = Zoom · <b>Knoten:</b> ziehen = Ast bewegen · Klick = auf-/zuklappen · Doppelklick = fokussieren · Taste J / ^ = JIT-Sicht · Taste O = Objektiv · Tasten 1–4 = Ebenen-Stufe · X/Y/Z = Achse sperren · <b>Verknüpfen:</b> Taste L oder Shift halten, dann von Knoten zu Knoten ziehen</div>
     <aside id="lex" hidden>
       <div class="row"><b>Lexikon</b><span id="lexProg"></span><button type="button" id="lexClose" aria-label="Schließen">×</button></div>
       <div class="row"><input id="lexQ" type="search" placeholder="Dokument oder Ordner filtern …" autocomplete="off"><label><input type="checkbox" id="lexOpen"> nur offene</label></div>

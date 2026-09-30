@@ -202,7 +202,9 @@ const state = {
   stufe: 2,             // Ebenen-Stufe 1-4 (Abstand und Platz)
   spacing: 1,           // aktuell animierter Abstandsfaktor
   filter: { q: '', st: new Set(), dev: new Set(), linked: false, axes: { x: true, y: true, z: true } },
-  lens: { on: false, r: 170, x: 0, y: 0, set: new Set() },   // Objektiv: folgt dem Zeiger
+  lens: { on: false, r: 170, x: 0, y: 0, set: new Set() },
+  jit: { on: false, reach: 260, gen: 0, drop: 0, pinned: new Set() },   // JIT-Sicht: Knoten entstehen nach Blick
+  born: [],             // gerade erzeugte Knoten (Einwachs-Animation)   // Objektiv: folgt dem Zeiger
   milestones: [],       // markierte Zwischenstände {id, name, note, at, metrics, extra?, snap?, seed?}
 };
 let linkSeq = 0;
@@ -439,7 +441,8 @@ function updateStat() {
   const parts = state.axes.map((a) => `${a.key.toUpperCase()} ${volumeK(a).toFixed(0)} k`);
   const tot = state.axes.reduce((t, a) => t + a.visible.length, 0);
   const vol = state.axes.reduce((t, a) => t + volumeK(a), 0);
-  $('stat').textContent = `Volumen ${parts.join(' · ')} · ${tot} Knoten · ${(tot / Math.max(vol, 1)).toFixed(1)} Knoten/k · Raster ${state.gridG} · Box ${state.boxL}`;
+  const jit = state.jit.on ? ` · JIT an: ${state.jit.gen} erzeugt, ${state.jit.drop} verworfen` : '';
+  $('stat').textContent = `Volumen ${parts.join(' · ')} · ${tot} Knoten · ${(tot / Math.max(vol, 1)).toFixed(1)} Knoten/k · Raster ${state.gridG} · Box ${state.boxL}${jit}`;
 }
 
 function relayout() {
@@ -459,9 +462,11 @@ function relayout() {
       if (!n.mesh) {
         n.mesh = new THREE.Mesh(sphereGeo, matFor(n.d.s));
         n.mesh.userData.node = n;
+        n.mesh.userData.fresh = true;
         axis.group.add(n.mesh);
       }
-      n.mesh.scale.setScalar(baseScale(n) * (n === pointer.hover ? 1.35 : 1));
+      if (n.mesh.userData.fresh) { n.mesh.userData.fresh = false; n.born = performance.now(); state.born.push(n); }
+      n.mesh.scale.setScalar(baseScale(n) * (n === pointer.hover ? 1.35 : 1) * bornFactor(n));
       n.mesh.visible = true;
       syncDevShell(n);
       n.mesh.position.copy(n.world);
@@ -481,6 +486,12 @@ function relayout() {
   $('hud').dataset.count = total;
 }
 
+function bornFactor(n) {
+  if (!n.born) return 1;
+  const k = (performance.now() - n.born) / 380;
+  if (k >= 1) { n.born = 0; return 1; }
+  return 1 - Math.pow(1 - k, 3);
+}
 function hideNode(n) {
   if (n.mesh) n.mesh.visible = false;
   disposeLabel(n);
@@ -494,7 +505,7 @@ function labelText(n) {
 }
 function wantsLabel(n) {
   return n.depth <= state.labelDepth || n === state.selected || n === state.hit || n === pointer.hover
-    || (n.fmatch && state.fmatchCount <= 60) || (state.lens.on && state.lens.set.has(n));
+    || (n.fmatch && state.fmatchCount <= 60) || (state.lens.on && state.lens.set.has(n)) || (state.jit.on && n.jitNear);
 }
 function updateLabel(n) {
   if (n.stamp !== state.stamp || !wantsLabel(n)) return disposeLabel(n);
@@ -819,6 +830,7 @@ function onDblClick(ev) {
 function toggle(n) {
   if (!n.kids.length) return;
   if (filterActive()) n.fcol = isOpen(n); else n.expanded = !n.expanded;
+  if (state.jit.on) state.jit.pinned.add(n.id);   // von Hand gesetzt: bleibt, bis du es änderst
   disposeLabel(n);
   relayout();
   markDirty();
@@ -954,6 +966,68 @@ $('sectorToggle').addEventListener('click', () => {
   markDirty();
 });
 
+
+
+/* ---------- JIT-Sicht: Knoten entstehen nach Blick ----------
+   Läuft im Takt, solange der Schalter an ist. Ein zugeklappter Knoten klappt auf, wenn er im Bild liegt und
+   nah genug ist (Bildmitte zählt mehr als der Rand). Aufgeklappte Knoten, die weit weg oder außerhalb des
+   Bildes liegen, klappen wieder zu. Von Hand aufgeklappte, der gewählte Knoten und sein Pfad bleiben stehen.
+   Die Zahl sichtbarer Knoten ist gedeckelt, so bleibt auch ein Scan mit zehntausenden Dateien flüssig. */
+const JIT_MAX = 2500;
+const jitV = new THREE.Vector3();
+function collapseDeep(n) {
+  n.expanded = false; n.fcol = true;
+  for (const k of n.kids) if (k.expanded && !state.jit.pinned.has(k.id)) collapseDeep(k);
+}
+function jitTick() {
+  const J = state.jit;
+  if (!J.on || filterActive() || pointer.down) return;
+  const keep = new Set();
+  for (let p = state.selected; p; p = p.parent) keep.add(p);
+  const all = [], cand = [];
+  let total = 0;
+  for (const a of state.axes) {
+    total += a.visible.length;
+    for (const n of a.visible) {
+      jitV.copy(n.world).project(camera);
+      const off = Math.max(Math.abs(jitV.x), Math.abs(jitV.y));
+      const item = { n, d: camera.position.distanceTo(n.world) * (1 + 1.5 * off), inView: jitV.z < 1 && off <= 1.15 };
+      all.push(item);
+      if (n.kids.length && n.depth >= 1) cand.push(item);
+    }
+  }
+  cand.sort((a, b) => a.d - b.d);
+  let opened = 0, closed = 0;
+  for (const c of cand) {
+    if (opened >= 4 || total >= JIT_MAX) break;
+    if (!c.n.expanded && c.inView && c.d < J.reach) { c.n.expanded = true; c.n.fcol = false; opened++; total += c.n.kids.length; J.gen += c.n.kids.length; }
+  }
+  for (let i = cand.length - 1; i >= 0 && closed < 10; i--) {
+    const c = cand[i], n = c.n;
+    if (!n.expanded || J.pinned.has(n.id) || keep.has(n)) continue;
+    if (!c.inView || c.d > J.reach * 1.5 || total > JIT_MAX * 1.1) { total -= n.kids.length; J.drop += n.kids.length; collapseDeep(n); closed++; }
+  }
+  // Beschriftung nach Blick: die 60 nächsten Knoten in Reichweite
+  all.sort((a, b) => a.d - b.d);
+  const near = new Set(all.filter((x) => x.inView && x.d < J.reach * 0.6).slice(0, 60).map((x) => x.n));
+  const changed = [];
+  for (const x of all) { const is = near.has(x.n); if (!!x.n.jitNear !== is) { x.n.jitNear = is; changed.push(x.n); } }
+  if (opened || closed) relayout();
+  else for (const n of changed) { disposeLabel(n); updateLabel(n); }
+}
+function setJit(on) {
+  state.jit.on = on;
+  $('jitToggle').setAttribute('aria-pressed', String(on));
+  $('jitR').hidden = !on;
+  if (on && filterActive()) toast('JIT-Sicht pausiert, solange ein Filter aktiv ist (der Filter bestimmt, was sichtbar ist).');
+  if (!on) {
+    for (const a of state.axes) for (const n of a.all) if (n.jitNear) { n.jitNear = false; disposeLabel(n); updateLabel(n); }
+  }
+  updateStat();
+}
+$('jitToggle').addEventListener('click', () => setJit(!state.jit.on));
+$('jitR').addEventListener('input', (e) => { state.jit.reach = +e.target.value; });
+setInterval(jitTick, 200);
 
 /* ---------- Objektiv: Linse am Zeiger + Voreinstellungen ---------- */
 const lensRing = $('lensRing');
@@ -2316,6 +2390,7 @@ addEventListener('keydown', (e) => {
   else if (e.key === 'f' && state.selected) focusOn(state.selected.world);
   else if (e.key.toLowerCase() === 'l') setLinkMode(!state.linkMode);
   else if (e.key.toLowerCase() === 'o') setLens(!state.lens.on);
+  else if (e.key.toLowerCase() === 'j' || e.key === '^' || e.code === 'Backquote') setJit(!state.jit.on);
   else if (e.key === 'Escape') { setLinkMode(false); select(null); }
 });
 
@@ -2353,6 +2428,13 @@ renderer.setAnimationLoop(() => {
   }
   controls.update();
   if (state.lens.on && ++lensTick % 6 === 0) lensUpdate();
+  if (state.born.length) {
+    state.born = state.born.filter((n) => {
+      if (!(n.mesh && n.mesh.visible)) { n.born = 0; return false; }
+      n.mesh.scale.setScalar(baseScale(n) * (n === pointer.hover ? 1.35 : 1) * bornFactor(n));
+      return n.born > 0;
+    });
+  }
   if (ring.visible) ring.quaternion.copy(camera.quaternion);
   renderer.render(scene, camera);
 });
@@ -2374,7 +2456,7 @@ controls.addEventListener('start', () => { fly = null; });
     toast('Daten konnten nicht geladen werden: ' + e.message);
   }
   window.__sandbox = {
-    state, snapshot, relayout, select,
+    state, snapshot, relayout, select, camera, controls, focusOn,
     project(n) {
       const r = canvas.getBoundingClientRect(), v = n.world.clone().project(camera);
       return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height };
