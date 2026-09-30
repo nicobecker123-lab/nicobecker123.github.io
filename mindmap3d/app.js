@@ -38,6 +38,8 @@ renderer.xr.enabled = true;
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0F1512);
+const world = new THREE.Group();   // alles Karten-Inhaltliche; XR skaliert/verschiebt nur diese Gruppe
+scene.add(world);
 const camera = new THREE.PerspectiveCamera(50, 1, 1, 8000);
 const DEFAULT_CAM = { p: [L * 1.55, L * 1.1, L * 1.75], t: [L / 2, L / 2, L / 2] };
 camera.position.fromArray(DEFAULT_CAM.p);
@@ -98,7 +100,7 @@ function disposeSprite(sp) {
    (setBox). Sektoren: Die drei Äste teilen den Würfel in drei gleiche Pyramiden um die Raumdiagonale,
    je 120° breit. Ast X liegt im Bereich x >= max(y, z), Ast Y bei y >= max(x, z), Ast Z bei z >= max(x, y). */
 const boxGroup = new THREE.Group();
-scene.add(boxGroup);
+world.add(boxGroup);
 const sectorPref = { on: true };
 let boxL = 0, boxG = 0;
 
@@ -168,7 +170,7 @@ for (const ax of AXES) {
   for (let d = 0; d <= 6; d++) {
     const t = textSprite('E' + d, { size: 2 * S, color: '#9AA69F', weight: 500 });
     t.position.setComponent(ax.perp[0], -3 * S);
-    scene.add(t);
+    world.add(t);
     ax.ticks.push(t);
   }
 }
@@ -180,7 +182,7 @@ const matFor = (s) => matCache[s] ||= new THREE.MeshLambertMaterial({ color: STA
 const ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.07, 8, 40), new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false }));
 ring.renderOrder = 9;
 ring.visible = false;
-scene.add(ring);
+world.add(ring);
 
 const state = {
   axes: [],           // Laufzeitdaten je Achse
@@ -549,7 +551,7 @@ function loadJSON(url) {
 
 async function buildAxes(saved) {
   for (const a of state.axes) {
-    scene.remove(a.group);
+    world.remove(a.group);
     for (const n of a.all) if (n.label) disposeSprite(n.label);
     a.lines.geometry.dispose();
   }
@@ -574,7 +576,7 @@ async function buildAxes(saved) {
     };
     axis.lines.frustumCulled = false;
     axis.group.add(axis.lines);
-    scene.add(axis.group);
+    world.add(axis.group);
     axis.root = build(data, null, 0, axis);
     state.axes.push(axis);
   }
@@ -1178,9 +1180,12 @@ $('declutterToggle').addEventListener('click', () => {
 setInterval(() => { declutterLabels(); measureOverlap(); updateStat(); }, 400);
 
 /* ---------- AR/VR (WebXR) ----------
-   Erster Schritt: Die Szene wird verkleinert vor dich gestellt (Tischmodell) und lässt sich umschauen.
-   Bedienung mit Controllern/Händen folgt. Die Knöpfe erscheinen nur, wenn das Gerät die Sitzung unterstützt. */
-const XR_SCALE = 0.004;
+   Die Karte (Gruppe `world`) wird verkleinert vor dich gestellt (Tischmodell), die Controller bleiben in
+   echten Meter-Koordinaten. Zeigen + Trigger wählt einen Knoten wie ein Klick. Zeigen + Griff an einem
+   Knoten verschiebt seinen Ast (wie das Ziehen mit der Maus). Ein Griff auf leeren Raum verschiebt die
+   ganze Karte ("Raum greifen"), zwei Griffe gleichzeitig drehen und skalieren sie um den Punkt zwischen
+   den Controllern (wie Pinch-Zoom, nur räumlich). Die Knöpfe erscheinen nur, wenn das Gerät das unterstützt. */
+const XR_SCALE = 0.004, XR_SCALE_MIN = 0.0006, XR_SCALE_MAX = 0.02;
 async function xrInit() {
   if (!navigator.xr) return;
   for (const [mode, id] of [['immersive-vr', 'xrVr'], ['immersive-ar', 'xrAr']]) {
@@ -1201,18 +1206,123 @@ renderer.xr.addEventListener('sessionstart', () => {
   const blend = renderer.xr.getSession().environmentBlendMode;   // 'opaque' = VR, sonst AR mit Kamerabild
   xrSaved.bg = scene.background; xrSaved.near = camera.near; xrSaved.far = camera.far; xrSaved.enabled = controls.enabled;
   if (blend !== 'opaque') scene.background = null;             // Passthrough: kein Hintergrund malen
-  scene.scale.setScalar(XR_SCALE);
-  scene.position.set(-150 * XR_SCALE, 0.7, -1.8);              // Boxmitte etwa 1,2 m hoch, 1,2 m vor dir
+  world.scale.setScalar(XR_SCALE);
+  world.position.set(-150 * XR_SCALE, 0.7, -1.8);              // Boxmitte etwa 1,2 m hoch, 1,2 m vor dir
+  world.quaternion.identity();
   camera.near = 0.05; camera.far = 100; camera.updateProjectionMatrix();
   controls.enabled = false;
 });
 renderer.xr.addEventListener('sessionend', () => {
   scene.background = xrSaved.bg;
-  scene.scale.setScalar(1); scene.position.set(0, 0, 0);
+  world.scale.setScalar(1); world.position.set(0, 0, 0); world.quaternion.identity();
   camera.near = xrSaved.near; camera.far = xrSaved.far; camera.updateProjectionMatrix();
   controls.enabled = xrSaved.enabled;
+  for (const st of XR.controllers) { st.mode = null; st.cursor.visible = false; }
+  XR.prevGrabCount = 0; XR.twoHandPrev = null;
 });
 xrInit();
+
+/* ---------- XR-Controller ---------- */
+const XR = { controllers: [], prevGrabCount: 0, twoHandPrev: null };
+const xrCaster = new THREE.Raycaster();
+function xrRay(controller) {
+  const origin = new THREE.Vector3().setFromMatrixPosition(controller.matrixWorld);
+  const dir = new THREE.Vector3(0, 0, -1).transformDirection(controller.matrixWorld);
+  return { origin, dir };
+}
+function xrToggleSelect(n) {
+  if (n.kids.length) { if (filterActive()) n.fcol = isOpen(n); else n.expanded = !n.expanded; disposeLabel(n); relayout(); markDirty(); }
+  select(n);
+}
+function makeXrController(index) {
+  const controller = renderer.xr.getController(index);
+  const line = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -3)]),
+    new THREE.LineBasicMaterial({ color: LINK_COLOR, transparent: true, opacity: 0.7 })
+  );
+  line.name = 'ray';
+  controller.add(line);
+  const cursor = new THREE.Mesh(new THREE.SphereGeometry(0.012, 12, 8), new THREE.MeshBasicMaterial({ color: LINK_COLOR }));
+  cursor.visible = false;
+  scene.add(cursor);
+  const st = { controller, cursor, mode: null, node: null, offStart: null, grabPos: new THREE.Vector3() };
+  controller.addEventListener('selectstart', () => {
+    const { origin, dir } = xrRay(controller);
+    xrCaster.set(origin, dir);
+    const hit = pointer.pickables ? xrCaster.intersectObjects(pointer.pickables, false)[0] : null;
+    if (hit) xrToggleSelect(hit.object.userData.node);
+  });
+  controller.addEventListener('squeezestart', () => {
+    const { origin, dir } = xrRay(controller);
+    xrCaster.set(origin, dir);
+    const hit = pointer.pickables ? xrCaster.intersectObjects(pointer.pickables, false)[0] : null;
+    st.grabPos.copy(origin);
+    if (hit) { st.mode = 'node'; st.node = hit.object.userData.node; st.offStart = st.node.off.clone(); }
+    else st.mode = 'world';
+  });
+  controller.addEventListener('squeezeend', () => { st.mode = null; st.node = null; });
+  scene.add(controller);
+  XR.controllers.push(st);
+}
+makeXrController(0);
+makeXrController(1);
+
+function xrFrame() {
+  for (const st of XR.controllers) {
+    const { origin, dir } = xrRay(st.controller);
+    xrCaster.set(origin, dir);
+    const hit = pointer.pickables ? xrCaster.intersectObjects(pointer.pickables, false)[0] : null;
+    st.cursor.visible = !!hit;
+    if (hit) {
+      st.cursor.position.copy(hit.point);
+      st.controller.getObjectByName('ray').scale.z = origin.distanceTo(hit.point) / 3;
+    } else st.controller.getObjectByName('ray').scale.z = 1;
+  }
+  for (const st of XR.controllers) {
+    if (st.mode !== 'node') continue;
+    const cur = new THREE.Vector3().setFromMatrixPosition(st.controller.matrixWorld);
+    const deltaLocal = cur.clone().sub(st.grabPos).applyQuaternion(world.quaternion.clone().invert()).divideScalar(world.scale.x);
+    st.node.off.copy(st.offStart).add(deltaLocal);
+    relayout();
+    markDirty();
+  }
+  const grabbing = XR.controllers.filter((st) => st.mode === 'world');
+  // Nur beim Loslassen der zweiten Hand (2 -> 1) neu einmessen: die verbleibende Hand hatte während des
+  // Zweihand-Griffs keinen laufend aktualisierten grabPos. Ein frischer Griff (0 -> 1) setzt seinen grabPos
+  // schon in squeezestart; ein erneutes Einmessen hier würde die Bewegung dieses ersten Bildes verschlucken.
+  if (XR.prevGrabCount === 2 && grabbing.length === 1) grabbing[0].grabPos.setFromMatrixPosition(grabbing[0].controller.matrixWorld);
+  if (grabbing.length !== 2) XR.twoHandPrev = null;
+  XR.prevGrabCount = grabbing.length;
+  if (grabbing.length === 2) {
+    const [a, b] = grabbing;
+    const curA = new THREE.Vector3().setFromMatrixPosition(a.controller.matrixWorld);
+    const curB = new THREE.Vector3().setFromMatrixPosition(b.controller.matrixWorld);
+    const curMid = curA.clone().add(curB).multiplyScalar(0.5);
+    const curDist = Math.max(curA.distanceTo(curB), 0.02);
+    const curVec = curB.clone().sub(curA);
+    if (XR.twoHandPrev) {
+      const { dist: prevDist, vec: prevVec } = XR.twoHandPrev;
+      const scaleFactor = curDist / prevDist;
+      const angle = Math.atan2(curVec.x, curVec.z) - Math.atan2(prevVec.x, prevVec.z);
+      const pivotLocal = world.worldToLocal(curMid.clone());
+      const newScale = THREE.MathUtils.clamp(world.scale.x * scaleFactor, XR_SCALE_MIN, XR_SCALE_MAX);
+      world.scale.setScalar(newScale);
+      world.rotateY(-angle);
+      world.updateMatrixWorld();
+      const pivotAfter = world.localToWorld(pivotLocal.clone());
+      world.position.add(curMid.clone().sub(pivotAfter));
+    }
+    XR.twoHandPrev = { mid: curMid, dist: curDist, vec: curVec };
+  } else {
+    XR.twoHandPrev = null;
+    if (grabbing.length === 1) {
+      const st = grabbing[0];
+      const cur = new THREE.Vector3().setFromMatrixPosition(st.controller.matrixWorld);
+      world.position.add(cur.clone().sub(st.grabPos));
+      st.grabPos.copy(cur);
+    }
+  }
+}
 
 /* ---------- Netzwerk (nmap): Ergebnisse als Ast im Visualizer ----------
    nmap selbst läuft nicht im Browser. tools/Scan-OwnNetwork.ps1 startet es gegen eigene Geräte und
@@ -1369,7 +1479,7 @@ $('fltClose').addEventListener('click', () => { $('flt').hidden = true; });
 /* ---------- Verknüpfungen (Node-Editor) ---------- */
 const nodeById = (id) => state.axes.map((a) => a.byId.get(id)).find(Boolean);
 const linkGroup = new THREE.Group();
-scene.add(linkGroup);
+world.add(linkGroup);
 const linkMat = new THREE.MeshBasicMaterial({ color: LINK_COLOR, transparent: true, opacity: 0.9 });
 const coneGeo = new THREE.ConeGeometry(1, 2.6, 12);
 const rubber = new THREE.Line(
@@ -1379,7 +1489,7 @@ const rubber = new THREE.Line(
 rubber.frustumCulled = false;
 rubber.renderOrder = 8;
 rubber.visible = false;
-scene.add(rubber);
+world.add(rubber);
 
 // Zugeklappte Knoten: die Verknüpfung endet am nächsten sichtbaren Vorfahren.
 function visibleAnchor(n) {
@@ -2595,14 +2705,18 @@ renderer.setAnimationLoop(() => {
     if (Math.abs(state.spacingTarget - state.spacing) <= 0.002) state.spacing = state.spacingTarget;
     relayout();
   }
-  if (fly) {
-    const k = Math.min(1, (performance.now() - fly.t0) / fly.ms);
-    const e = 1 - Math.pow(1 - k, 3);
-    camera.position.lerpVectors(fly.p0, fly.p1, e);
-    controls.target.lerpVectors(fly.t0v, fly.t1, e);
-    if (k >= 1) fly = null;
+  if (renderer.xr.isPresenting) {
+    xrFrame();
+  } else {
+    if (fly) {
+      const k = Math.min(1, (performance.now() - fly.t0) / fly.ms);
+      const e = 1 - Math.pow(1 - k, 3);
+      camera.position.lerpVectors(fly.p0, fly.p1, e);
+      controls.target.lerpVectors(fly.t0v, fly.t1, e);
+      if (k >= 1) fly = null;
+    }
+    controls.update();
   }
-  controls.update();
   if (state.lens.on && ++lensTick % 6 === 0) lensUpdate();
   if (state.born.length) {
     state.born = state.born.filter((n) => {
@@ -2632,7 +2746,7 @@ controls.addEventListener('start', () => { fly = null; });
     toast('Daten konnten nicht geladen werden: ' + e.message);
   }
   window.__sandbox = {
-    state, snapshot, relayout, select, camera, controls, focusOn,
+    state, snapshot, relayout, select, camera, controls, focusOn, scene, world, renderer, XR, xrFrame,
     project(n) {
       const r = canvas.getBoundingClientRect(), v = n.world.clone().project(camera);
       return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height };

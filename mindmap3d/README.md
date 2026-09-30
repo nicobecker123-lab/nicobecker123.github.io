@@ -30,7 +30,12 @@ Die Leiste unten (Klick öffnet Details) läuft ab dem Laden im Takt, ohne Trigg
 - **Überdeckung:** Die Zeile oben links zeigt, wie viele Knoten im Bild ein anderes berühren. Ab 35 % kommt ein Hinweis (Ebenen-Stufe erhöhen, Filter oder JIT-Sicht).
 - **Durchsicht:** Der Regler macht Knoten halbtransparent ohne Tiefenschreiben, damit man hindurch sieht.
 - **Entzerren:** Beschriftungen, die sich überdecken oder zu klein sind, werden ausgeblendet. Gewählte und überfahrene Knoten behalten ihr Label.
-- **AR/VR (WebXR, erster Schritt):** Die Knöpfe VR und AR erscheinen nur, wenn das Gerät eine Sitzung unterstützt. Die Szene steht dann als Tischmodell (Maßstab 1:250) etwa 1,2 m vor dir, im AR-Modus ohne Hintergrund. Man kann sich umsehen, die Bedienung mit Controllern oder Händen fehlt noch. Dieser Teil ist ungetestet, weil hier kein XR-Gerät zur Verfügung stand.
+- **AR/VR (WebXR) mit Controllern:** Die Knöpfe VR und AR erscheinen nur, wenn das Gerät eine Sitzung unterstützt. Nur die Karte (nicht der reale Raum) steht als Tischmodell etwa 1,2 m vor dir, im AR-Modus ohne Hintergrund.
+  - **Zeigen + Trigger** an einem Knoten: wählen und auf-/zuklappen, wie ein Mausklick.
+  - **Zeigen + Griff** an einem Knoten: seinen Ast verschieben (wie das Ziehen mit der Maus).
+  - **Griff auf leeren Raum** (eine Hand): die ganze Karte verschieben ("Raum greifen").
+  - **Griff mit beiden Händen**: die Karte um den Punkt zwischen den Händen drehen und skalieren (wie Pinch-Zoom, nur räumlich).
+  - Die Controller-Logik wurde ohne echtes XR-Gerät per simulierten Controller-Posen durchgetestet (Auswahl, Ast-Ziehen, Ein- und Zweihand-Griff); der Sitzungsaufbau selbst (Tischmodell, Passthrough) ist weiterhin ungetestet, weil kein Gerät zur Verfügung stand.
 
 ## JIT-Sicht (Knoten entstehen nach Blick)
 **JIT-Sicht** (Taste J oder ^) erzeugt Details erst, wenn du sie ansiehst, und läuft im Takt, solange der Schalter an ist.
