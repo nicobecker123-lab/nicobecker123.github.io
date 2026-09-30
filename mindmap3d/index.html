@@ -43,6 +43,21 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #toast{position:absolute;left:50%;top:12px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:7px 12px;border-radius:7px;opacity:0;transition:opacity .25s;pointer-events:none}
 #toast.on{opacity:1}
 #tip{position:absolute;pointer-events:none;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:12px;display:none;max-width:320px;word-break:break-word}
+#lex{position:absolute;top:10px;left:10px;width:330px;max-height:calc(100% - 20px);display:flex;flex-direction:column;gap:8px;background:color-mix(in srgb,var(--surface) 94%,transparent);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+#lex[hidden]{display:none}
+#lex .row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+#lex .row b{font-size:14px}
+#lexProg{color:var(--muted);font-variant-numeric:tabular-nums;flex:1}
+#lexQ{flex:1;min-width:0}
+#lexList{overflow:auto;min-height:60px;border-top:1px solid var(--line)}
+#lexList .fold{position:sticky;top:0;background:var(--surface);color:var(--muted);font:11px ui-monospace,monospace;padding:6px 2px 3px;word-break:break-all}
+#lexList .doc{display:flex;gap:6px;align-items:flex-start;padding:2px 0}
+#lexList .doc input{margin-top:3px}
+#lexList .doc button{border:0;background:none;padding:1px 3px;text-align:left;word-break:break-all}
+#lexList .doc.cur button{color:var(--accent);font-weight:600}
+#lexList .doc.done button{color:var(--muted);text-decoration:line-through}
+#lexList .doc small{color:var(--muted);white-space:nowrap}
+@media (max-width:760px){#lex{width:auto;right:10px;max-height:42%}}
 @media (max-width:760px){#panel{width:auto;left:10px;top:auto;bottom:10px;max-height:45%}#hud{display:none}}
 </style>
 </head>
@@ -63,6 +78,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <div class="grp"><input id="q" type="search" placeholder="Knoten suchen …" autocomplete="off"><button type="button" id="qNext">Weiter</button></div>
     <span class="spacer"></span>
     <div class="grp">
+      <button type="button" id="lexToggle" title="Alle Dokumente erfassen, Schritt für Schritt">Lexikon</button>
       <button type="button" id="attach" title="JSON aus tools/scan_folder.py an den gewählten Knoten hängen">Ordner-Scan anhängen</button>
       <button type="button" id="attachRepos" title="Repo-Scan (data/repos-scan.json) an den gewählten Knoten hängen">Repo-Scan laden</button>
       <button type="button" id="resetPos" title="Alle verschobenen Äste zurücksetzen">Positionen zurücksetzen</button>
@@ -76,6 +92,13 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <canvas id="c"></canvas>
     <div id="tip"></div>
     <div id="hud"><b>Maus:</b> links ziehen = drehen · rechts ziehen = verschieben · Rad = Zoom · <b>Knoten:</b> ziehen = Ast bewegen · Klick = auf-/zuklappen · Doppelklick = fokussieren · Tasten 1–4 = Achse</div>
+    <aside id="lex" hidden>
+      <div class="row"><b>Lexikon</b><span id="lexProg"></span><button type="button" id="lexClose" aria-label="Schließen">×</button></div>
+      <div class="row"><input id="lexQ" type="search" placeholder="Dokument oder Ordner filtern …" autocomplete="off"><label><input type="checkbox" id="lexOpen"> nur offene</label></div>
+      <div class="row"><button type="button" id="lexPrev">‹ Zurück</button><button type="button" id="lexDone" class="primary">Erfassen &amp; weiter</button><button type="button" id="lexSkip">Weiter ›</button></div>
+      <div id="lexList"></div>
+      <div class="row"><button type="button" id="lexExport">Als Markdown exportieren</button></div>
+    </aside>
     <aside id="panel" aria-live="polite"></aside>
     <div id="toast"></div>
   </div>

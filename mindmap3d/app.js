@@ -141,6 +141,7 @@ const state = {
   depth: 2,
   attachLog: [],      // [{axis, parentId, tree}] - angehängte Scans, für Speichern
   stamp: 0,
+  captured: new Set(),  // im Lexikon erfasste Dokumente (Schlüssel)
 };
 
 function nodeSize(n) {
@@ -283,6 +284,7 @@ async function buildAxes(saved) {
   }
   state.axes = [];
   state.attachLog = [];
+  state.captured = new Set();
   state.selected = state.hit = null;
   for (const cfg of AXES) {
     const data = await loadJSON(cfg.source);
@@ -310,6 +312,7 @@ async function buildAxes(saved) {
       const n = state.axes.map((a) => a.byId.get(id)).find(Boolean);
       if (n) n.off.fromArray(v);
     }
+    state.captured = new Set(saved.captured || []);
     setLock(saved.lock || 'free');
     setSlider('depth', saved.depth ?? 2);
     setSlider('labelDepth', saved.labelDepth ?? 1);
@@ -322,6 +325,7 @@ async function buildAxes(saved) {
   }
   fitSliderMax();
   relayout();
+  lexRebuild();
 }
 
 function attachTree(parent, tree) {
@@ -585,11 +589,134 @@ function attachAndShow(parent, tree) {
   state.attachLog.push({ axis: parent.axis.key, parentId: parent.id, tree });
   fitSliderMax();
   relayout();
+  lexRebuild();
   select(parent);
   focusOn(k.world, 45);
   markDirty();
   toast(`„${tree.n}“ an ${parent.d.n} angehängt`);
 }
+
+
+/* ---------- Lexikon: alle Dokumente Schritt für Schritt erfassen ---------- */
+const lex = { entries: [], view: [], cur: null, shown: 300 };
+const docKey = (n) => n.d.p || [...ancestors(n), n.d.n].join('/');
+function ancestors(n) { const r = []; for (let p = n.parent; p; p = p.parent) r.unshift(p.d.n); return r; }
+function docFolder(n) {
+  const p = n.d.p;
+  if (p && p.includes('/')) return p.slice(0, p.lastIndexOf('/'));
+  return ancestors(n).join(' / ');
+}
+
+function lexRebuild() {
+  const map = new Map();
+  for (const a of state.axes) for (const n of a.all) {
+    if (n.d.s !== 'datei') continue;
+    const key = docKey(n);
+    let e = map.get(key);
+    if (!e) map.set(key, e = { key, name: n.d.n, folder: docFolder(n), size: n.d.m || '', nodes: {} });
+    e.nodes[a.key] = n;
+  }
+  lex.entries = [...map.values()].sort((a, b) => a.folder.localeCompare(b.folder, 'de') || a.name.localeCompare(b.name, 'de', { numeric: true }));
+  lexRender();
+}
+
+function lexFilter() {
+  const q = $('lexQ').value.trim().toLowerCase(), open = $('lexOpen').checked;
+  lex.view = lex.entries.filter((e) => (!open || !state.captured.has(e.key)) && (!q || e.name.toLowerCase().includes(q) || e.folder.toLowerCase().includes(q)));
+}
+
+function lexRender() {
+  if ($('lex').hidden) return;
+  lexFilter();
+  const box = $('lexList');
+  box.replaceChildren();
+  let last = null;
+  for (const e of lex.view.slice(0, lex.shown)) {
+    if (e.folder !== last) {
+      last = e.folder;
+      const f = document.createElement('div');
+      f.className = 'fold';
+      f.textContent = e.folder || '(Wurzel)';
+      box.append(f);
+    }
+    const row = document.createElement('div');
+    row.className = 'doc' + (state.captured.has(e.key) ? ' done' : '') + (lex.cur === e.key ? ' cur' : '');
+    row.dataset.key = e.key;
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = state.captured.has(e.key);
+    cb.setAttribute('aria-label', 'Erfasst: ' + e.name);
+    cb.addEventListener('change', () => { setCaptured(e.key, cb.checked); lexRender(); });
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = e.name;
+    b.addEventListener('click', () => lexGo(e));
+    const sz = document.createElement('small');
+    sz.textContent = e.size;
+    row.append(cb, b, sz);
+    box.append(row);
+  }
+  if (lex.view.length > lex.shown) {
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.textContent = `${lex.view.length - lex.shown} weitere anzeigen`;
+    more.addEventListener('click', () => { lex.shown += 300; lexRender(); });
+    box.append(more);
+  }
+  const done = lex.entries.filter((e) => state.captured.has(e.key)).length;
+  $('lexProg').textContent = `${done} / ${lex.entries.length} erfasst`;
+  box.querySelector('.cur')?.scrollIntoView({ block: 'nearest' });
+}
+
+function setCaptured(key, on) {
+  on ? state.captured.add(key) : state.captured.delete(key);
+  markDirty();
+}
+
+function lexGo(e) {
+  lex.cur = e.key;
+  const n = e.nodes[state.selected?.axis.key] || Object.values(e.nodes)[0];
+  for (let p = n.parent; p; p = p.parent) p.expanded = true;
+  relayout();
+  select(n);
+  focusOn(n.world, 22);
+  lexRender();
+}
+
+function lexStep(dir, capture) {
+  lexFilter();
+  const all = lex.entries;
+  let i = all.findIndex((e) => e.key === lex.cur);
+  if (capture && i >= 0) setCaptured(lex.cur, true);
+  const ok = (e) => !state.captured.has(e.key);
+  let next = null;
+  if (dir > 0) next = all.slice(i + 1).find(ok) || (i < 0 ? all.find(ok) : null);
+  else next = i > 0 ? all[i - 1] : null;
+  if (!next) { lexRender(); return toast(dir > 0 ? 'Keine weiteren offenen Dokumente' : 'Am Anfang der Liste'); }
+  lexGo(next);
+}
+
+$('lexToggle').addEventListener('click', () => { const h = $('lex').hidden; $('lex').hidden = !h; if (h) lexRender(); });
+$('lexClose').addEventListener('click', () => { $('lex').hidden = true; });
+$('lexQ').addEventListener('input', () => { lex.shown = 300; lexRender(); });
+$('lexOpen').addEventListener('change', () => { lex.shown = 300; lexRender(); });
+$('lexPrev').addEventListener('click', () => lexStep(-1, false));
+$('lexSkip').addEventListener('click', () => lexStep(1, false));
+$('lexDone').addEventListener('click', () => lexStep(1, true));
+$('lexExport').addEventListener('click', () => {
+  const lines = ['# Lexikon', '', `${state.captured.size} von ${lex.entries.length} Dokumenten erfasst · ${new Date().toISOString().slice(0, 10)}`];
+  let last = null;
+  for (const e of lex.entries) {
+    if (e.folder !== last) { last = e.folder; lines.push('', `## ${e.folder || '(Wurzel)'}`, ''); }
+    const axes = Object.keys(e.nodes).map((k) => k.toUpperCase()).join('/');
+    lines.push(`- [${state.captured.has(e.key) ? 'x' : ' '}] ${e.name}${e.size ? ` · ${e.size}` : ''} · ${axes}`);
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([lines.join('\n') + '\n'], { type: 'text/markdown' }));
+  a.download = 'lexikon.md';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+});
 
 /* ---------- Zustand speichern / laden ---------- */
 function snapshot() {
@@ -602,7 +729,7 @@ function snapshot() {
     v: 1, savedAt: new Date().toISOString(),
     camera: { p: camera.position.toArray().map((v) => +v.toFixed(2)), t: controls.target.toArray().map((v) => +v.toFixed(2)) },
     lock: state.lock, depth: state.depth, labelDepth: state.labelDepth,
-    expanded, offs, attach: state.attachLog,
+    expanded, offs, attach: state.attachLog, captured: [...state.captured],
   };
 }
 function persist(snap) {
@@ -635,8 +762,8 @@ $('export').addEventListener('click', () => {
 addEventListener('beforeunload', (e) => { if (dirty) e.preventDefault(); });
 
 addEventListener('keydown', (e) => {
-  if (e.target.matches('input')) return;
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); return save(); }
+  if (e.target.matches('input')) return;
   const map = { 1: 'free', 2: 'x', 3: 'y', 4: 'z' };
   if (map[e.key]) { setLock(map[e.key]); markDirty(); }
   else if (e.key === 'f' && state.selected) focusOn(state.selected.world);

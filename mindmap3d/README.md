@@ -10,10 +10,16 @@ Start: Repo über GitHub Pages ausliefern und `/mindmap3d/` öffnen, lokal z. B.
 - **Ebene:** klappt alle Knoten bis zur gewählten Tiefe auf. **Labels:** bis zu welcher Tiefe Beschriftungen stehen.
 - **Suche:** Name oder Pfad, „Weiter“ springt zum nächsten Treffer und klappt den Weg dorthin auf.
 
+## Lexikon
+Button **Lexikon**: listet jedes Dokument (Datei-Knoten) aller Achsen, nach Ordner gegliedert, ohne Doppelte (gleicher Pfad = ein Eintrag).
+- **Erfassen & weiter** hakt das aktuelle Dokument ab, springt zum nächsten offenen und fliegt dort hin. **Weiter** überspringt, **Zurück** geht zurück.
+- Filter nach Name oder Ordner, „nur offene“ blendet Erfasstes aus. Angehängte Scans (z. B. der Konzeptordner) erscheinen automatisch.
+- Der Erfassungsstand steckt im gespeicherten Zustand. **Als Markdown exportieren** schreibt `lexikon.md` mit Häkchen.
+
 ## Zustand speichern
 - **Zustand speichern** (Strg+S): Browser-Speicher (`localStorage`), wird beim nächsten Öffnen wiederhergestellt.
 - **Export / Import:** dieselbe Momentaufnahme als JSON-Datei für den nächsten Schritt oder ein anderes Gerät.
-- Gespeichert werden Kamera, aufgeklappte Knoten, verschobene Äste, angehängte Scans und Einstellungen.
+- Gespeichert werden Kamera, aufgeklappte Knoten, verschobene Äste, angehängte Scans, Lexikon-Stand und Einstellungen.
 
 ## Daten
 - `data/systemos.json` ist die „SystemOS Zustandskarte“ (Claude-Artifact). In `app.js` (`AXES`) hat jede Achse ein eigenes
