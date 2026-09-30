@@ -194,6 +194,7 @@ const state = {
   home: null,           // vom Nutzer fixierte Startansicht {p, t}
   links: [],            // freie Verknüpfungen [{id, a, b, label}] zwischen Knoten-IDs
   linkMode: false,
+  obsidian: { vault: 'Sy0sObsidian', folder: 'SystemOS-Mindmap', links: true },   // Obsidian-Konfiguration
   dev: {},              // Dev-Lifecycle je Knoten-ID: wait | test | commit | done
   editor: { nodes: {}, view: { x: 60, y: 60, k: 1 } },   // Node-Editor: Karten-Positionen und Ansicht
   stufe: 2,             // Ebenen-Stufe 1-4 (Abstand und Platz)
@@ -567,6 +568,8 @@ async function buildAxes(saved) {
       if (n) n.off.fromArray(v);
     }
     state.captured = new Set(saved.captured || []);
+    Object.assign(state.obsidian, saved.obsidian || {});
+    obSync();
     state.dev = { ...(saved.dev || {}) };
     if (!saved.dev) seedDevFromMap();
     for (const id of Object.keys(state.dev)) if (!nodeById(id)) delete state.dev[id];
@@ -676,6 +679,11 @@ function renderPanel(n) {
   if (n.d.z) { add('div', 'Zielaktion: ' + n.d.z[0], 'k'); add('p', n.d.z[1]); }
   if (n.d.ak) { add('div', 'Gedankenanker', 'k'); add('p', n.d.ak); }
   if (n.d.p) { add('div', 'Pfad', 'k'); add('div', n.d.p, 'path'); }
+  if (n.d.ob?.file) {
+    const a = add('a', 'In Obsidian öffnen ↗');
+    a.href = `obsidian://open?vault=${encodeURIComponent(state.obsidian.vault)}&file=${encodeURIComponent(n.d.ob.file.replace(/\.md$/i, ''))}`;
+    if (n.d.ob.tags?.length) add('div', n.d.ob.tags.map((t) => '#' + t).join(' '), 'path');
+  }
   add('div', 'Dev-Lifecycle', 'k');
   const dv = document.createElement('div');
   dv.className = 'devrow';
@@ -1022,7 +1030,7 @@ $('fltReset').addEventListener('click', () => {
 });
 function toggleLeft(id, onOpen) {
   const el = $(id), open = el.hidden;
-  for (const x of ['lex', 'ms', 'flt']) $(x).hidden = true;
+  for (const x of ['lex', 'ms', 'flt', 'ob']) $(x).hidden = true;
   el.hidden = !open;
   if (open && onOpen) onOpen();
 }
@@ -1424,6 +1432,209 @@ function edDeleteLink() {
   renderLinks(); renderLinkPanel(); edDrawWires(); edInfo(); markDirty();
 }
 
+
+/* ---------- Obsidian: Vault einlesen, Wikilinks übernehmen, Notizen exportieren ---------- */
+const OB_SKIP = new Set(['.obsidian', '.git', '.trash', 'node_modules']);
+const OB_MAX_NOTES = 3000, OB_MAX_LINKS = 400, OB_MAX_EXPORT = 800;
+
+function obSync() {
+  $('obVault').value = state.obsidian.vault;
+  $('obFolder').value = state.obsidian.folder;
+  $('obLinks').checked = state.obsidian.links;
+}
+$('obVault').addEventListener('input', (e) => { state.obsidian.vault = e.target.value.trim(); markDirty(); });
+$('obFolder').addEventListener('input', (e) => { state.obsidian.folder = e.target.value.trim() || 'SystemOS-Mindmap'; markDirty(); });
+$('obLinks').addEventListener('change', (e) => { state.obsidian.links = e.target.checked; markDirty(); });
+$('obToggle').addEventListener('click', () => toggleLeft('ob', obSync));
+$('obClose').addEventListener('click', () => { $('ob').hidden = true; });
+
+function obParse(text) {
+  let body = text, fmTags = [];
+  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
+  if (m) {
+    body = text.slice(m[0].length);
+    const t = /^tags:\s*(.*)$/mi.exec(m[1]);
+    if (t) fmTags = t[1].replace(/[[\]]/g, '').split(/[,\s]+/).map((x) => x.replace(/^#/, '').trim()).filter(Boolean);
+  }
+  const links = [...new Set([...body.matchAll(/\[\[([^\]|#\n]+)(?:#[^\]|\n]*)?(?:\|[^\]\n]*)?\]\]/g)].map((x) => x[1].trim()))];
+  const tags = [...new Set([...fmTags, ...[...body.matchAll(/(?:^|\s)#([\p{L}\p{N}_/-]+)/gu)].map((x) => x[1])])].slice(0, 8);
+  const lines = body.split(/\r?\n/).map((l) => l.trim());
+  const excerpt = (lines.filter((l) => l && !l.startsWith('#')).join(' ') || lines.find((l) => l) || '')
+    .replace(/[*_`>[\]]/g, '').slice(0, 240);
+  return { links, tags, excerpt };
+}
+
+async function obWalkHandle(dir, rel, out) {
+  for await (const [name, h] of dir.entries()) {
+    if (out.length >= OB_MAX_NOTES) return;
+    if (OB_SKIP.has(name)) continue;
+    const p = rel ? `${rel}/${name}` : name;
+    if (h.kind === 'directory') await obWalkHandle(h, p, out);
+    else if (/\.md$/i.test(name)) out.push({ rel: p, get: () => h.getFile() });
+  }
+}
+
+async function obImport(rootName, entries) {
+  const parent = state.selected || state.axes[0].root;
+  const root = { n: rootName, s: 'ordner', p: rootName, c: [] };
+  const dirs = new Map([['', root]]);
+  const ensure = (path) => {
+    if (dirs.has(path)) return dirs.get(path);
+    const i = path.lastIndexOf('/');
+    const par = ensure(i < 0 ? '' : path.slice(0, i));
+    const node = { n: path.slice(i + 1), s: 'ordner', p: `${rootName}/${path}`, c: [] };
+    par.c.push(node);
+    dirs.set(path, node);
+    return node;
+  };
+  entries.sort((a, b) => a.rel.localeCompare(b.rel, 'de', { numeric: true }));
+  let count = 0;
+  for (const e of entries.slice(0, OB_MAX_NOTES)) {
+    const file = await e.get();
+    const info = obParse((await file.text()).slice(0, 100000));
+    const i = e.rel.lastIndexOf('/');
+    const dir = ensure(i < 0 ? '' : e.rel.slice(0, i));
+    dir.c.push({
+      n: e.rel.slice(i + 1).replace(/\.md$/i, ''), s: 'datei', p: `${rootName}/${e.rel}`,
+      m: `${(file.size / 1024).toFixed(1)} KB${info.tags.length ? ' · ' + info.tags.map((t) => '#' + t).join(' ') : ''}`,
+      d: info.excerpt, ob: { file: e.rel, tags: info.tags, links: info.links },
+    });
+    count++;
+  }
+  const fill = (n) => {
+    if (!n.c) return 1;
+    const notes = n.c.reduce((t, c) => t + fill(c), 0);
+    n.c.sort((a, b) => (a.c ? 0 : 1) - (b.c ? 0 : 1));
+    n.m = `${notes} Notizen`;
+    return notes;
+  };
+  fill(root);
+
+  attachAndShow(parent, root);
+  const top = parent.kids.at(-1);
+  const byName = new Map(), notes = [];
+  (function walk(n) { if (n.d.ob) { notes.push(n); const k = n.d.n.toLowerCase(); if (!byName.has(k)) byName.set(k, n); } n.kids.forEach(walk); })(top);
+  let made = 0, skipped = 0;
+  if (state.obsidian.links) {
+    for (const n of notes) {
+      for (const target of n.d.ob.links) {
+        const t = byName.get(target.split('/').pop().toLowerCase());
+        if (!t || t === n) continue;
+        if (state.links.some((l) => l.a === n.id && l.b === t.id)) continue;
+        if (made >= OB_MAX_LINKS) { skipped++; continue; }
+        state.links.push({ id: ++linkSeq, a: n.id, b: t.id, label: '' });
+        made++;
+      }
+    }
+  }
+  for (const n of notes) delete n.d.ob.links;   // nur zum Verknüpfen nötig, spart Speicher
+  renderLinks(); renderLinkPanel(); markDirty();
+  toast(`Obsidian: ${count} Notizen, ${made} Wikilinks als Verknüpfungen${skipped ? ` (${skipped} weitere über dem Limit von ${OB_MAX_LINKS})` : ''}`);
+}
+
+$('obImport').addEventListener('click', async () => {
+  try {
+    if (window.showDirectoryPicker) {
+      const dir = await window.showDirectoryPicker({ mode: 'read' });
+      const out = [];
+      await obWalkHandle(dir, '', out);
+      await obImport(dir.name, out);
+    } else {
+      $('obDir').value = '';
+      $('obDir').click();
+    }
+  } catch (e) { if (e?.name !== 'AbortError') toast('Vault nicht lesbar: ' + e.message); }
+});
+$('obDir').addEventListener('change', async () => {
+  const files = [...$('obDir').files];
+  if (!files.length) return;
+  const rootName = files[0].webkitRelativePath.split('/')[0] || 'Vault';
+  const out = files.map((f) => ({ rel: f.webkitRelativePath.split('/').slice(1).join('/'), get: async () => f }))
+    .filter((e) => /\.md$/i.test(e.rel) && !e.rel.split('/').some((p) => OB_SKIP.has(p)));
+  try { await obImport(rootName, out); } catch (e) { toast('Vault nicht lesbar: ' + e.message); }
+});
+
+/* Export: eine Notiz je Knoten (Auswahl samt Unterbaum, sonst der bearbeitete Stand), Verknüpfungen als [[Links]] */
+const obName = (s) => s.replace(/[\\/:*?"<>|#^[\]]/g, '_').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Knoten';
+
+function obExportSet() {
+  if (state.selected) {
+    const out = [];
+    (function walk(n) { if (out.length < OB_MAX_EXPORT) { out.push(n); n.kids.forEach(walk); } })(state.selected);
+    return { nodes: out, label: `„${state.selected.d.n}“ samt Unterbaum` };
+  }
+  const linked = new Set(state.links.flatMap((l) => [l.a, l.b]));
+  const nodes = state.axes.flatMap((a) => a.all).filter((n) => linked.has(n.id) || state.dev[n.id] || state.captured.has(docKey(n))).slice(0, OB_MAX_EXPORT);
+  return { nodes, label: 'bearbeiteter Stand (verknüpft, mit Dev-Stand oder erfasst)' };
+}
+
+function obBuildNotes(nodes) {
+  const names = new Map(), used = new Set();
+  for (const n of nodes) {
+    let base = obName(n.d.n), name = base;
+    if (used.has(name.toLowerCase())) name = `${base} (${n.axis.key.toUpperCase()} E${n.depth} ${n.id})`;
+    used.add(name.toLowerCase());
+    names.set(n.id, name);
+  }
+  const notes = [];
+  for (const n of nodes) {
+    const out = [], inc = [];
+    for (const l of state.links) {
+      if (l.a === n.id && names.has(l.b)) out.push(`- → [[${names.get(l.b)}]]${l.label ? ' · ' + l.label : ''}`);
+      if (l.b === n.id && names.has(l.a)) inc.push(`- ← [[${names.get(l.a)}]]${l.label ? ' · ' + l.label : ''}`);
+    }
+    const kids = n.kids.filter((k) => names.has(k.id)).map((k) => `- [[${names.get(k.id)}]]`);
+    const dev = state.dev[n.id];
+    const tags = ['systemos', n.d.s ? `status/${n.d.s}` : null, dev ? `dev/${dev}` : null].filter(Boolean);
+    const lines = [
+      '---', `tags: [${tags.join(', ')}]`, `achse: ${n.axis.key.toUpperCase()}`, `ebene: ${n.depth}`,
+      ...(n.d.p ? [`pfad: "${n.d.p.replace(/"/g, "'")}"`] : []), ...(dev ? [`dev: ${DEV[devIndex(dev)].label}`] : []), '---', '',
+      `# ${n.d.n}`, '',
+    ];
+    if (n.d.m) lines.push(`_${n.d.m}_`, '');
+    if (n.d.d) lines.push(n.d.d, '');
+    if (n.d.z) lines.push(`**Zielaktion (${n.d.z[0]}):** ${n.d.z[1]}`, '');
+    if (n.d.ak) lines.push(`> Gedankenanker: ${n.d.ak}`, '');
+    if (out.length || inc.length) lines.push('## Verknüpfungen', ...out, ...inc, '');
+    if (kids.length) lines.push('## Kinder', ...kids, '');
+    notes.push({ file: `${names.get(n.id)}.md`, text: lines.join('\n') });
+  }
+  const idx = ['---', 'tags: [systemos, index]', '---', '', '# Mindmap-Index', '',
+    `Export vom ${new Date().toLocaleString('de-DE')} · ${nodes.length} Notizen`, ''];
+  for (const a of state.axes) {
+    const mine = nodes.filter((n) => n.axis === a);
+    if (mine.length) idx.push(`## Achse ${a.key.toUpperCase()}`, '', ...mine.map((n) => `- [[${names.get(n.id)}]]`), '');
+  }
+  notes.unshift({ file: '_Mindmap-Index.md', text: idx.join('\n') });
+  return notes;
+}
+
+$('obExport').addEventListener('click', async () => {
+  const { nodes, label } = obExportSet();
+  if (!nodes.length) return toast('Nichts zu exportieren: erst einen Knoten wählen oder Verknüpfungen/Dev-Stände setzen');
+  const notes = obBuildNotes(nodes);
+  try {
+    if (window.showDirectoryPicker) {
+      const vault = await window.showDirectoryPicker({ mode: 'readwrite' });
+      const dir = await vault.getDirectoryHandle(state.obsidian.folder, { create: true });
+      for (const n of notes) {
+        const w = await (await dir.getFileHandle(n.file, { create: true })).createWritable();
+        await w.write(n.text);
+        await w.close();
+      }
+      toast(`${notes.length} Notizen (${label}) nach ${vault.name}/${state.obsidian.folder} geschrieben`);
+    } else {
+      const text = notes.map((n) => `<!-- ${n.file} -->\n${n.text}`).join('\n\n');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([text], { type: 'text/markdown' }));
+      a.download = `${state.obsidian.folder}.md`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      toast(`Dieser Browser kann keinen Ordner beschreiben. Alle ${notes.length} Notizen als eine Datei geladen.`);
+    }
+  } catch (e) { if (e?.name !== 'AbortError') toast('Export fehlgeschlagen: ' + e.message); }
+});
+
 /* ---------- Lexikon: alle Dokumente Schritt für Schritt erfassen ---------- */
 const lex = { entries: [], view: [], cur: null, shown: 300 };
 const docKey = (n) => n.d.p || [...ancestors(n), n.d.n].join('/');
@@ -1700,7 +1911,7 @@ function snapshot(nested = false) {
     v: 1, savedAt: new Date().toISOString(),
     scale: S, layout: LAYOUT, sectors: sectorPref.on, stufe: state.stufe, home: state.home,
     filter: { q: state.filter.q, st: [...state.filter.st], dev: [...state.filter.dev], axes: state.filter.axes },
-    dev: state.dev, editor: state.editor, links: state.links.map(({ a, b, label }) => ({ a, b, label })),
+    dev: state.dev, editor: state.editor, obsidian: state.obsidian, links: state.links.map(({ a, b, label }) => ({ a, b, label })),
     lock: state.lock, depth: state.depth, labelDepth: state.labelDepth,
     expanded, offs, attach: state.attachLog, captured: [...state.captured],
     ...(nested ? {} : { milestones: state.milestones.filter((m) => !m.seed) }),

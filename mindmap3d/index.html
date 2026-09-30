@@ -130,6 +130,16 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 .devrow button{padding:4px 8px}
 .devrow button[aria-pressed=true]{background:var(--c);color:#0F1512;border-color:var(--c)}
 .devrow button.past{border-color:var(--c);color:var(--c)}
+#ob{position:absolute;top:10px;left:10px;width:340px;max-height:calc(100% - 20px);overflow:auto;display:flex;flex-direction:column;gap:8px;background:color-mix(in srgb,var(--surface) 94%,transparent);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+#ob[hidden]{display:none}
+#ob .row{display:flex;gap:6px;align-items:center}
+#ob .fld{display:grid;gap:3px;color:var(--muted);font-size:12px}
+#ob .fld input{color:var(--ink)}
+#ob .chk{display:flex;gap:6px;align-items:flex-start;font-size:12px}
+#ob .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-top:4px}
+#ob .hint{margin:0;color:var(--muted);font-size:12px}
+#ob code{font-family:ui-monospace,monospace;font-size:11.5px}
+@media (max-width:760px){#ob{width:auto;right:10px;max-height:46%}}
 @media (max-width:760px){#panel{width:auto;left:10px;top:auto;bottom:10px;max-height:45%}#hud{display:none}}
 </style>
 </head>
@@ -158,6 +168,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <div class="grp"><input id="q" type="search" placeholder="Knoten suchen …" autocomplete="off"><button type="button" id="qNext">Weiter</button></div>
     <span class="spacer"></span>
     <div class="grp">
+      <button type="button" id="obToggle" title="Obsidian-Vault einlesen, Wikilinks übernehmen, Notizen exportieren">Obsidian</button>
       <button type="button" id="edToggle" title="Verknüpfungen als Karten und Drähte bearbeiten, wie in n8n">Node-Editor</button>
       <button type="button" id="linkMode" aria-pressed="false" title="Taste L: von Knoten zu Knoten ziehen, um sie zu verknüpfen">Verknüpfen</button>
       <button type="button" id="linksToggle" title="Verknüpfungen bearbeiten">Verknüpfungen</button>
@@ -209,6 +220,18 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
         <div class="edhint">Karte ziehen: verschieben · Rad: Zoom · Vom Port (Kreis) zu einer anderen Karte ziehen: verbinden · Draht anklicken + Entf: löschen · Doppelklick auf Draht: beschriften · Doppelklick auf Karte: in 3D zeigen</div>
       </div>
     </section>
+    <aside id="ob" hidden>
+      <div class="row"><b>Obsidian</b><span class="spacer"></span><button type="button" id="obClose" aria-label="Schließen">×</button></div>
+      <label class="fld">Vault-Name (für „In Obsidian öffnen“)<input id="obVault" type="text" placeholder="Sy0sObsidian" autocomplete="off"></label>
+      <label class="fld">Export-Ordner im Vault<input id="obFolder" type="text" placeholder="SystemOS-Mindmap" autocomplete="off"></label>
+      <label class="chk"><input id="obLinks" type="checkbox"> <code>[[Wikilinks]]</code> beim Import als Verknüpfungen übernehmen</label>
+      <div class="k">Import</div>
+      <p class="hint">Liest alle Notizen des Vault-Ordners (ohne <code>.obsidian</code>, <code>.git</code>, <code>.trash</code>) als Ast unter den gewählten Knoten. Bis 3000 Notizen und 400 Verknüpfungen.</p>
+      <div class="row"><button type="button" id="obImport">Vault importieren …</button></div>
+      <div class="k">Export</div>
+      <p class="hint">Schreibt eine Notiz je Knoten mit Tags, Status, Dev-Stand und <code>[[Links]]</code>. Gewählter Knoten samt Unterbaum, sonst der bearbeitete Stand. Es wird nur der Export-Ordner angelegt, vorhandene Notizen mit gleichem Namen werden überschrieben.</p>
+      <div class="row"><button type="button" id="obExport" class="primary">Nach Obsidian exportieren …</button></div>
+    </aside>
     <aside id="flt" hidden>
       <div class="row"><b>Filter</b><span class="spacer"></span><button type="button" id="fltClose" aria-label="Schließen">×</button></div>
       <input id="fltQ" type="search" placeholder="Name oder Pfad enthält …" autocomplete="off">
@@ -239,6 +262,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <div id="toast"></div>
   </div>
 </div>
+<input id="obDir" type="file" webkitdirectory multiple hidden>
 <input id="file" type="file" accept="application/json,.json" hidden>
 <script type="module" src="app.js"></script>
 </body>

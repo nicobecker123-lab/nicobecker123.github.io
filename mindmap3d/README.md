@@ -22,6 +22,12 @@ Start: Repo über GitHub Pages ausliefern und `/mindmap3d/` öffnen, lokal z. B.
 - Karten hinzufügen: über die Suche, **+ Auswahl** (in 3D gewählter Knoten) oder **+ mit Kindern**. Beim Öffnen kommen alle Endpunkte bestehender Verknüpfungen automatisch dazu.
 - Verbinden: vom Kreis (Port) einer Karte auf eine andere Karte ziehen. Draht anklicken + Entf löscht, Doppelklick auf den Draht beschriftet, Doppelklick auf eine Karte zeigt den Knoten in 3D. **Auto-Anordnen** ordnet die Karten nach Fluss von links nach rechts. Rad = Zoom, Hintergrund ziehen = verschieben.
 
+## Obsidian
+Button **Obsidian**: Konfiguration (Vault-Name, Export-Ordner, Wikilinks als Verknüpfungen) und beide Richtungen.
+- **Import:** Ordner des Vault wählen. Alle Notizen (ohne `.obsidian`, `.git`, `.trash`) hängen als Ast unter dem gewählten Knoten, mit Tags und Textauszug. `[[Wikilinks]]` werden zu Verknüpfungen (bis 400, tote Links werden übersprungen). Im Detailpanel öffnet **In Obsidian öffnen** die Notiz per `obsidian://`-Link.
+- **Export:** Eine Notiz je Knoten mit Frontmatter (Tags `status/…`, `dev/…`, Achse, Ebene, Pfad), Beschreibung, `## Verknüpfungen` und `## Kinder` als `[[Links]]`, dazu `_Mindmap-Index.md`. Exportiert wird der gewählte Knoten samt Unterbaum, sonst der bearbeitete Stand. Schreibt nur in den Export-Ordner im Vault und überschreibt gleichnamige Notizen dort. In Chrome und Edge wird direkt in den Vault geschrieben, in anderen Browsern kommt eine Sammeldatei.
+- Der Vault-Name in der Konfiguration ist vorbelegt mit `Sy0sObsidian` (aus der Zustandskarte) und wird mit dem Zustand gespeichert.
+
 ## Dev-Lifecycle
 Jeder Knoten kann einen Stand tragen: **Wartebereich → Test → Commit → Abgeschlossen** (Detailpanel). Ein Punkt darf nur Schritt für Schritt vorrücken, zurück geht immer. Nichts springt ungeprüft auf „Abgeschlossen“. Der Stand erscheint als farbige Hülle um den Knoten und als Punkt auf der Karte im Editor. Die Startwerte kommen aus dem Karten-Zweig „Dev-Lifecycle“. Es gibt Filter-Chips je Stand, und die Zahlen laufen in die Meilensteine ein.
 
@@ -49,7 +55,7 @@ Button **Lexikon**: listet jedes Dokument (Datei-Knoten) aller Achsen, nach Ordn
 ## Zustand speichern
 - **Zustand speichern** (Strg+S): Browser-Speicher (`localStorage`), wird beim nächsten Öffnen wiederhergestellt.
 - **Export / Import:** dieselbe Momentaufnahme als JSON-Datei für den nächsten Schritt oder ein anderes Gerät.
-- Gespeichert werden Startansicht, Ebenen-Stufe, Node-Editor, Dev-Stände, Filter, Verknüpfungen, aufgeklappte Knoten, verschobene Äste, angehängte Scans, Lexikon-Stand und Einstellungen.
+- Gespeichert werden Startansicht, Ebenen-Stufe, Node-Editor, Dev-Stände, Obsidian-Konfiguration, Filter, Verknüpfungen, aufgeklappte Knoten, verschobene Äste, angehängte Scans, Lexikon-Stand und Einstellungen.
 
 ## Daten
 - `data/systemos.json` ist die „SystemOS Zustandskarte“ (Claude-Artifact). In `app.js` (`AXES`) hat jede Achse ein eigenes
