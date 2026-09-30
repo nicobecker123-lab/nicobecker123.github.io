@@ -12,7 +12,20 @@ Start: Repo über GitHub Pages ausliefern und `/mindmap3d/` öffnen, lokal z. B.
 - **Tiefe:** klappt alle Knoten bis zur gewählten Tiefe auf. **Labels:** bis zu welcher Tiefe Beschriftungen stehen.
 - **Suche:** Name oder Pfad, „Weiter“ springt zum nächsten Treffer und klappt den Weg dorthin auf.
 
-## Verknüpfungen (Node-Editor)
+## Sektoren, Volumen-Packing und Raster
+- **Drei 120°-Sektoren:** Die drei Äste teilen den Würfel in drei gleiche Pyramiden um die Raumdiagonale. Ast X liegt bei x ≥ max(y, z), Ast Y bei y ≥ max(x, z), Ast Z bei z ≥ max(x, y). Jeder Ast kann seine Knoten frei in seinem Sektor positionieren. Knoten werden beim Ziehen in den Sektor geklemmt. **Sektoren** blendet die Begrenzungsflächen ein oder aus.
+- **Volumeneffizientes Layout:** Auf jeder Ebene füllen die Knoten das Sektor-Quadrat gleichmäßig. Dabei wird die Reihenfolge einer Hilbert-Kurve benutzt, damit Geschwister und Kinder räumlich zusammenbleiben. Die Ebenenposition ist die kleinste, bei der jeder Knoten seinen Mindestabstand hat, also das kleinste eingenommene Volumen. Die Zeile oben links zeigt Volumen je Ast, Knoten je Volumen, Rastergröße und Boxgröße.
+- **Raster mit Auto-Anpassung:** Die Rasterweite wird aus dem Platzbedarf gewählt (etwa zehn Zellen je Kante, gerundet auf 1/2/3/5 × 10ⁿ). Alle Ebenen rasten daran ein, und Box, Raster und Achsen wachsen mit, wenn mehr Platz nötig ist. Verschobene Äste aus einer älteren Layout-Version werden beim Laden verworfen.
+
+## Node-Editor (2D, wie n8n)
+- **Node-Editor** öffnet eine Arbeitsfläche mit Karten und Drähten. Die Drähte sind dieselben Verknüpfungen wie im 3D-Raum, Änderungen wirken in beide Richtungen.
+- Karten hinzufügen: über die Suche, **+ Auswahl** (in 3D gewählter Knoten) oder **+ mit Kindern**. Beim Öffnen kommen alle Endpunkte bestehender Verknüpfungen automatisch dazu.
+- Verbinden: vom Kreis (Port) einer Karte auf eine andere Karte ziehen. Draht anklicken + Entf löscht, Doppelklick auf den Draht beschriftet, Doppelklick auf eine Karte zeigt den Knoten in 3D. **Auto-Anordnen** ordnet die Karten nach Fluss von links nach rechts. Rad = Zoom, Hintergrund ziehen = verschieben.
+
+## Dev-Lifecycle
+Jeder Knoten kann einen Stand tragen: **Wartebereich → Test → Commit → Abgeschlossen** (Detailpanel). Ein Punkt darf nur Schritt für Schritt vorrücken, zurück geht immer. Nichts springt ungeprüft auf „Abgeschlossen“. Der Stand erscheint als farbige Hülle um den Knoten und als Punkt auf der Karte im Editor. Die Startwerte kommen aus dem Karten-Zweig „Dev-Lifecycle“. Es gibt Filter-Chips je Stand, und die Zahlen laufen in die Meilensteine ein.
+
+## Verknüpfungen (3D)
 - **Verknüpfen** (Taste L, oder beim Ziehen Shift halten): von einem Knoten auf einen Zielknoten ziehen, es entsteht eine gerichtete Verbindung, auch über Äste und Achsen hinweg.
 - **Verknüpfungen** öffnet die Liste: Beschriftung setzen, Richtung umkehren (⇄), löschen (×), zur Verbindung fliegen.
 - Ist ein Endpunkt zugeklappt, endet die Linie am nächsten sichtbaren Vorfahren. Die Verknüpfungen werden mit dem Zustand gespeichert.
@@ -36,7 +49,7 @@ Button **Lexikon**: listet jedes Dokument (Datei-Knoten) aller Achsen, nach Ordn
 ## Zustand speichern
 - **Zustand speichern** (Strg+S): Browser-Speicher (`localStorage`), wird beim nächsten Öffnen wiederhergestellt.
 - **Export / Import:** dieselbe Momentaufnahme als JSON-Datei für den nächsten Schritt oder ein anderes Gerät.
-- Gespeichert werden Startansicht, Ebenen-Stufe, Filter, Verknüpfungen, aufgeklappte Knoten, verschobene Äste, angehängte Scans, Lexikon-Stand und Einstellungen.
+- Gespeichert werden Startansicht, Ebenen-Stufe, Node-Editor, Dev-Stände, Filter, Verknüpfungen, aufgeklappte Knoten, verschobene Äste, angehängte Scans, Lexikon-Stand und Einstellungen.
 
 ## Daten
 - `data/systemos.json` ist die „SystemOS Zustandskarte“ (Claude-Artifact). In `app.js` (`AXES`) hat jede Achse ein eigenes

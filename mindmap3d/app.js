@@ -93,44 +93,84 @@ function disposeSprite(sp) {
   sp.material.dispose();
 }
 
-(function buildBox() {
+/* Box, Raster und Achsen hängen vom Bedarf der Äste ab und werden bei Änderung neu aufgebaut
+   (setBox). Sektoren: Die drei Äste teilen den Würfel in drei gleiche Pyramiden um die Raumdiagonale,
+   je 120° breit. Ast X liegt im Bereich x >= max(y, z), Ast Y bei y >= max(x, z), Ast Z bei z >= max(x, y). */
+const boxGroup = new THREE.Group();
+scene.add(boxGroup);
+const sectorPref = { on: true };
+let boxL = 0, boxG = 0;
+
+function clearGroup(g) {
+  for (const c of [...g.children]) {
+    g.remove(c);
+    if (c.isSprite) { disposeSprite(c); continue; }
+    if (typeof c.dispose === 'function') c.dispose();
+    if (c.isGroup) { clearGroup(c); continue; }
+    c.geometry?.dispose();
+    for (const m of Array.isArray(c.material) ? c.material : [c.material]) m?.dispose();
+  }
+}
+
+function setBox(Ln, Gn) {
+  if (Ln === boxL && Gn === boxG) return;
+  boxL = Ln; boxG = Gn;
+  clearGroup(boxGroup);
   const box = new THREE.LineSegments(
-    new THREE.EdgesGeometry(new THREE.BoxGeometry(L, L, L)),
+    new THREE.EdgesGeometry(new THREE.BoxGeometry(Ln, Ln, Ln)),
     new THREE.LineBasicMaterial({ color: 0x5B6B62 })
   );
-  box.position.set(L / 2, L / 2, L / 2);
-  scene.add(box);
+  box.position.setScalar(Ln / 2);
+  boxGroup.add(box);
 
-  const gridMat = { color: 0x2B3731, transparent: true, opacity: 0.7 };
+  const div = Math.max(2, Math.round(Ln / Gn));
   const mk = () => {
-    const g = new THREE.GridHelper(L, 10, 0x3A4A41, 0x22302A);
-    Object.assign(g.material, gridMat);
+    const g = new THREE.GridHelper(Ln, div, 0x3A4A41, 0x22302A);
+    g.material.transparent = true;
+    g.material.opacity = 0.7;
     return g;
   };
-  const floor = mk(); floor.position.set(L / 2, 0, L / 2); scene.add(floor);
-  const back = mk(); back.rotation.x = Math.PI / 2; back.position.set(L / 2, L / 2, 0); scene.add(back);
-  const side = mk(); side.rotation.z = Math.PI / 2; side.position.set(0, L / 2, L / 2); scene.add(side);
+  const floor = mk(); floor.position.set(Ln / 2, 0, Ln / 2); boxGroup.add(floor);
+  const back = mk(); back.rotation.x = Math.PI / 2; back.position.set(Ln / 2, Ln / 2, 0); boxGroup.add(back);
+  const side = mk(); side.rotation.z = Math.PI / 2; side.position.set(0, Ln / 2, Ln / 2); boxGroup.add(side);
 
   for (const ax of AXES) {
     const dir = new THREE.Vector3().setComponent(ax.dim, 1);
-    const arrow = new THREE.ArrowHelper(dir, new THREE.Vector3(), L + 10 * S, ax.color, 5 * S, 2.4 * S);
+    const arrow = new THREE.ArrowHelper(dir, new THREE.Vector3(), Ln + 10 * S, ax.color, 5 * S, 2.4 * S);
     arrow.line.material.transparent = true;
     arrow.line.material.opacity = 0.45;
     arrow.cone.material.transparent = true;
     arrow.cone.material.opacity = 0.55;
-    scene.add(arrow);
+    boxGroup.add(arrow);
     const tag = textSprite(ax.key.toUpperCase() + '-Achse', { size: 4 * S, color: '#' + ax.color.toString(16).padStart(6, '0') });
-    tag.position.copy(dir).multiplyScalar(L + 12 * S);
-    scene.add(tag);
-    for (let d = 0; d <= 6; d++) {
-      const t = textSprite('E' + d, { size: 2 * S, color: '#9AA69F', weight: 500 });
-      (ax.ticks ||= []).push(t);
-      t.position.copy(dir).multiplyScalar(T0 + d * GAP);
-      t.position.setComponent(ax.perp[0], -3 * S);
-      scene.add(t);
-    }
+    tag.position.copy(dir).multiplyScalar(Ln + 12 * S);
+    boxGroup.add(tag);
   }
-})();
+
+  const sec = new THREE.Group();
+  sec.name = 'sectors';
+  sec.visible = sectorPref.on;
+  const D = Ln;
+  const faces = [[[0, 0, 0], [D, D, 0], [D, D, D]], [[0, 0, 0], [0, D, D], [D, D, D]], [[0, 0, 0], [D, 0, D], [D, D, D]]];
+  for (const f of faces) {
+    const geo = new THREE.BufferGeometry().setFromPoints(f.map((p) => new THREE.Vector3(...p)));
+    sec.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.045, side: THREE.DoubleSide, depthWrite: false })));
+    sec.add(new THREE.LineLoop(geo, new THREE.LineBasicMaterial({ color: 0x8FA0B3, transparent: true, opacity: 0.35 })));
+  }
+  boxGroup.add(sec);
+}
+setBox(L, L / 10);
+
+// Ebenenmarken E0..E6 je Achse; ihre Lage folgt den (am Raster eingerasteten) Ebenen.
+for (const ax of AXES) {
+  ax.ticks = [];
+  for (let d = 0; d <= 6; d++) {
+    const t = textSprite('E' + d, { size: 2 * S, color: '#9AA69F', weight: 500 });
+    t.position.setComponent(ax.perp[0], -3 * S);
+    scene.add(t);
+    ax.ticks.push(t);
+  }
+}
 
 /* ---------- Knoten & Layout ---------- */
 const sphereGeo = new THREE.SphereGeometry(1, 14, 10);
@@ -154,9 +194,11 @@ const state = {
   home: null,           // vom Nutzer fixierte Startansicht {p, t}
   links: [],            // freie Verknüpfungen [{id, a, b, label}] zwischen Knoten-IDs
   linkMode: false,
+  dev: {},              // Dev-Lifecycle je Knoten-ID: wait | test | commit | done
+  editor: { nodes: {}, view: { x: 60, y: 60, k: 1 } },   // Node-Editor: Karten-Positionen und Ansicht
   stufe: 2,             // Ebenen-Stufe 1-4 (Abstand und Platz)
   spacing: 1,           // aktuell animierter Abstandsfaktor
-  filter: { q: '', st: new Set(), axes: { x: true, y: true, z: true } },
+  filter: { q: '', st: new Set(), dev: new Set(), axes: { x: true, y: true, z: true } },
   milestones: [],       // markierte Zwischenstände {id, name, note, at, metrics, extra?, snap?, seed?}
 };
 let linkSeq = 0;
@@ -170,7 +212,7 @@ function build(d, parent, index, axis) {
   const n = {
     d, axis, parent, depth: parent ? parent.depth + 1 : 0,
     id: parent ? `${parent.id}.${index}` : axis.key,
-    kids: [], off: new THREE.Vector3(), world: new THREE.Vector3(),
+    kids: [], off: new THREE.Vector3(), world: new THREE.Vector3(), cs: new THREE.Vector3(),
     expanded: false, mesh: null, label: null, stamp: 0, fkeep: true, fmatch: false, fcol: false,
   };
   axis.byId.set(n.id, n);
@@ -179,10 +221,76 @@ function build(d, parent, index, axis) {
   return n;
 }
 
-function spread(depth) { return S * Math.max(0.9, 3.6 * Math.pow(0.72, depth)); }
+
+/* ---------- Dev-Lifecycle: Wartebereich → Test → Commit → Abgeschlossen ----------
+   Nichts gilt als fertig, bevor es geprüft und committed ist: Ein Punkt darf nur Schritt für Schritt
+   vorrücken (zurück geht immer). Die Startwerte kommen aus dem Karten-Zweig „Dev-Lifecycle“. */
+const DEV = [
+  { key: 'wait', label: 'Wartebereich', color: '#D9A63B' },
+  { key: 'test', label: 'Test', color: '#5FA6B8' },
+  { key: 'commit', label: 'Commit', color: '#A488DB' },
+  { key: 'done', label: 'Abgeschlossen', color: '#4DB57C' },
+];
+const devIndex = (key) => DEV.findIndex((d) => d.key === key);
+const devMats = {};
+const devMat = (key) => devMats[key] ||= new THREE.MeshBasicMaterial({
+  color: DEV[devIndex(key)].color, transparent: true, opacity: 0.4, depthWrite: false, side: THREE.BackSide,
+});
+
+function seedDevFromMap() {
+  for (const a of state.axes) {
+    for (const c of a.root.kids) {
+      if (!c.d.n.startsWith('Dev-Lifecycle')) continue;
+      for (const grp of c.kids) {
+        const key = grp.d.n.startsWith('Wartebereich') ? 'wait' : grp.d.n.startsWith('Abgeschlossene') ? 'done' : null;
+        if (key) for (const k of grp.kids) state.dev[k.id] = key;
+      }
+    }
+  }
+}
+
+function setDev(n, key) {
+  const cur = state.dev[n.id] || '';
+  if (key && devIndex(key) > devIndex(cur) + 1) {
+    return toast(`Erst „${DEV[devIndex(cur) + 1].label}“ abschließen: Nichts springt ungeprüft auf „${DEV[devIndex(key)].label}“.`);
+  }
+  if (key) state.dev[n.id] = key; else delete state.dev[n.id];
+  syncDevShell(n);
+  renderPanel(n);
+  fltBuild();
+  if (filterActive()) fltApply();
+  markDirty();
+  if (!$('ed').hidden) edRender();
+}
+
+function syncDevShell(n) {
+  const key = state.dev[n.id];
+  if (!n.mesh) return;
+  if (!key) { if (n.devShell) { n.mesh.remove(n.devShell); n.devShell = null; } return; }
+  if (!n.devShell) {
+    n.devShell = new THREE.Mesh(sphereGeo, devMat(key));
+    n.devShell.scale.setScalar(1.55);
+    n.mesh.add(n.devShell);
+  }
+  n.devShell.material = devMat(key);
+}
+
+function devCounts() {
+  const c = { wait: 0, test: 0, commit: 0, done: 0 };
+  const seen = new Set();
+  for (const a of state.axes) for (const n of a.all) {
+    const key = state.dev[n.id];
+    if (!key) continue;
+    const id = n.d.p || n.id;                  // gleiche Punkte auf mehreren Achsen nur einmal zählen
+    if (seen.has(id + key)) continue;
+    seen.add(id + key);
+    c[key]++;
+  }
+  return c;
+}
 
 /* ---------- Filter: Knoten dynamisch ein-/ausblenden ---------- */
-const filterActive = () => !!(state.filter.q.trim() || state.filter.st.size);
+const filterActive = () => !!(state.filter.q.trim() || state.filter.st.size || state.filter.dev.size);
 
 function computeFilter() {
   const f = state.filter, q = f.q.trim().toLowerCase(), act = filterActive();
@@ -192,7 +300,8 @@ function computeFilter() {
     for (const k of n.kids) if (walk(k)) keep = true;
     const pass = act
       && (!q || n.d.n.toLowerCase().includes(q) || (n.d.p || '').toLowerCase().includes(q))
-      && (!f.st.size || f.st.has(n.d.s));
+      && (!f.st.size || f.st.has(n.d.s))
+      && (!f.dev.size || f.dev.has(state.dev[n.id] || 'none'));
     n.fmatch = pass;
     if (pass) state.fmatchCount++;
     n.fkeep = !act || keep || pass;
@@ -209,60 +318,130 @@ function shownKids(n) {
 const isOpen = (n) => n.kids.length > 0 && shownKids(n).length > 0;
 const baseScale = (n) => nodeSize(n) * (filterActive() && !n.fmatch ? 0.6 : 1);
 
-/* Dynamische Platzadaption: Ebenenabstand wächst mit der Zahl sichtbarer Knoten der nächsten Ebene,
-   der Querabstand wird so gewählt, dass sich Nachbarn nie überlappen. */
-function layoutAxis(axis) {
-  const [p, q] = axis.perp;
-  const stamp = state.stamp;
-  const visible = [];
-  axis.levelPos = [];
-  if (!state.filter.axes[axis.key] || !axis.root.fkeep) { axis.visible = visible; return; }
+/* ---------- Volumeneffizientes Layout ----------
+   Jeder Ast bekommt seine Pyramide (Sektor). Auf Ebene d mit Achsenposition a liegt ein Quadrat der Seite a
+   im Sektor. Die n_d Knoten der Ebene besetzen darin die Zellen eines k*k-Gitters (k = ceil(sqrt(n_d)))
+   in Reihenfolge einer Hilbert-Kurve: Geschwister und Kinder bleiben räumlich zusammen, das Quadrat wird
+   gleichmäßig gefüllt. Die Ebenenposition ist die kleinste, bei der jede Zelle mindestens den Knotenabstand
+   hat, also das kleinste Volumen. Danach rasten alle Ebenen am automatisch gewählten Raster ein. */
+const LAYOUT = 2;
+const C0 = 2.4 * S;   // Mindestabstand der Knotenmitten bei Ebenen-Stufe 2
 
-  const counts = [];
-  const count = (n) => { counts[n.depth] = (counts[n.depth] || 0) + 1; for (const k of shownKids(n)) count(k); };
-  count(axis.root);
-  const sp = state.spacing;
-  axis.levelPos[0] = T0;
-  for (let d = 1; d < counts.length; d++) {
-    const crowd = Math.min(2, Math.max(0, Math.log10(1 + counts[d] / 10)));
-    axis.levelPos[d] = axis.levelPos[d - 1] + GAP * sp * (1 + 0.25 * crowd);
+function niceStep(x) {
+  const e = Math.pow(10, Math.floor(Math.log10(x)));
+  return [1, 2, 3, 5, 10].map((c) => c * e).reduce((b, c) => (Math.abs(c - x) < Math.abs(b - x) ? c : b));
+}
+
+const hilbertCache = new Map();
+function hilbertCells(k) {
+  if (hilbertCache.has(k)) return hilbertCache.get(k);
+  let m = 1;
+  while (m < k) m *= 2;
+  const cells = [];
+  for (let d = 0; d < m * m; d++) {
+    let x = 0, y = 0, t = d;
+    for (let sz = 1; sz < m; sz *= 2) {
+      const rx = 1 & (t >> 1), ry = 1 & (t ^ rx);
+      if (ry === 0) {
+        if (rx === 1) { x = sz - 1 - x; y = sz - 1 - y; }
+        [x, y] = [y, x];
+      }
+      x += sz * rx; y += sz * ry; t >>= 2;
+    }
+    if (x < k && y < k) cells.push([x, y]);
   }
+  hilbertCache.set(k, cells);
+  return cells;
+}
 
-  const place = (n, pu, pv, sx, sy, sz) => {
-    const c = [0, 0, 0];
-    c[axis.dim] = axis.levelPos[n.depth];
-    c[p] = pu; c[q] = pv;
-    const shx = sx + n.off.x, shy = sy + n.off.y, shz = sz + n.off.z;
-    n.world.set(c[0] + shx, c[1] + shy, c[2] + shz);
-    n.stamp = stamp;
-    visible.push(n);
-    const kids = shownKids(n);
-    if (!kids.length) return;
-    const minDist = nodeSize(kids[0]) * 2.4;
-    const s = Math.max(spread(n.depth) * sp, minDist / 1.7);
-    kids.forEach((k, i) => {
-      const r = kids.length === 1 ? 0 : s * Math.sqrt(i + 1);
-      const a = i * GOLDEN;
-      place(k, pu + r * Math.cos(a), pv + r * Math.sin(a), shx, shy, shz);
-    });
+function planAxis(axis) {
+  const plan = { axis, lists: [], raw: [] };
+  if (!state.filter.axes[axis.key] || !axis.root.fkeep) return plan;
+  const walk = (n, sx, sy, sz) => {
+    n.cs.set(sx + n.off.x, sy + n.off.y, sz + n.off.z);
+    (plan.lists[n.depth] ||= []).push(n);
+    for (const k of shownKids(n)) walk(k, n.cs.x, n.cs.y, n.cs.z);
   };
-  place(axis.root, axis.spine[0] * L, axis.spine[1] * L, 0, 0, 0);
-  axis.visible = visible;
+  walk(axis.root, 0, 0, 0);
+  const sp = state.spacing;
+  plan.raw[0] = T0;
+  for (let d = 1; d < plan.lists.length; d++) {
+    const need = Math.ceil(Math.sqrt(plan.lists[d].length)) * C0 * sp;
+    plan.raw[d] = Math.max(plan.raw[d - 1] + GAP * sp, need);
+  }
+  return plan;
+}
+
+function clampToRegion(axis, w, r) {
+  const a = Math.max(w.getComponent(axis.dim), r);
+  const m = Math.min(r, a / 2);
+  w.setComponent(axis.dim, a);
+  for (const d of axis.perp) w.setComponent(d, Math.min(Math.max(w.getComponent(d), m), a - m));
+}
+
+function layoutAll() {
+  const plans = state.axes.map(planAxis);
+  const rawTop = Math.max(L, ...plans.map((p) => p.raw.at(-1) ?? 0));
+  const G = niceStep(rawTop / 10);
+  let top = 0;
+  for (const p of plans) {
+    const lp = [];
+    p.raw.forEach((r, d) => {
+      let v = Math.ceil(r / G) * G;
+      if (d > 0 && v <= lp[d - 1]) v = lp[d - 1] + G;
+      lp[d] = v;
+    });
+    p.axis.levelPos = lp;
+    top = Math.max(top, lp.at(-1) ?? 0);
+  }
+  const Leff = Math.max(Math.ceil(L / G) * G, Math.ceil((top + G * 0.6) / G) * G);
+  setBox(Leff, G);
+  state.boxL = Leff;
+  state.gridG = G;
+
+  for (const p of plans) {
+    const axis = p.axis, [pd, qd] = axis.perp, visible = [];
+    p.lists.forEach((list, d) => {
+      const a = axis.levelPos[d];
+      const k = Math.max(1, Math.ceil(Math.sqrt(list.length)));
+      const cell = a / k, cells = hilbertCells(k);
+      list.forEach((n, i) => {
+        const c = [0, 0, 0];
+        c[axis.dim] = a;
+        c[pd] = (cells[i][0] + 0.5) * cell;
+        c[qd] = (cells[i][1] + 0.5) * cell;
+        n.world.set(c[0] + n.cs.x, c[1] + n.cs.y, c[2] + n.cs.z);
+        clampToRegion(axis, n.world, nodeSize(n));
+        n.stamp = state.stamp;
+        visible.push(n);
+      });
+    });
+    axis.visible = visible;
+    axis.top = axis.levelPos.at(-1) ?? 0;
+  }
 }
 
 function updateTicks(axis) {
-  const lp = axis.levelPos, last = lp.length ? lp[lp.length - 1] : T0;
+  const lp = axis.levelPos, G = state.gridG || GAP;
   (axis.ticks || []).forEach((t, d) => {
-    t.position.setComponent(axis.dim, lp[d] ?? last + (d - (lp.length - 1 || 0)) * GAP * state.spacing);
+    t.position.setComponent(axis.dim, lp[d] ?? (lp.length ? lp.at(-1) + (d - lp.length + 1) * G : (d + 1) * G));
   });
+}
+
+function volumeK(axis) { return (axis.top ** 3) / 3 / 1000; }   // Pyramide in Tausend Einheiten³
+function updateStat() {
+  const parts = state.axes.map((a) => `${a.key.toUpperCase()} ${volumeK(a).toFixed(0)} k`);
+  const tot = state.axes.reduce((t, a) => t + a.visible.length, 0);
+  const vol = state.axes.reduce((t, a) => t + volumeK(a), 0);
+  $('stat').textContent = `Volumen ${parts.join(' · ')} · ${tot} Knoten · ${(tot / Math.max(vol, 1)).toFixed(1)} Knoten/k · Raster ${state.gridG} · Box ${state.boxL}`;
 }
 
 function relayout() {
   state.stamp++;
   const pick = [];
   let total = 0;
+  layoutAll();
   for (const axis of state.axes) {
-    layoutAxis(axis);
     updateTicks(axis);
     total += axis.visible.length;
     for (const n of axis.shown) if (n.stamp !== state.stamp) hideNode(n);
@@ -278,6 +457,7 @@ function relayout() {
       }
       n.mesh.scale.setScalar(baseScale(n) * (n === pointer.hover ? 1.35 : 1));
       n.mesh.visible = true;
+      syncDevShell(n);
       n.mesh.position.copy(n.world);
       pick.push(n.mesh);
       if (n.parent) {
@@ -289,6 +469,7 @@ function relayout() {
     axis.lines.geometry.setAttribute('position', new THREE.BufferAttribute(seg, 3));
   }
   pointer.pickables = pick;
+  updateStat();
   renderLinks();
   updateRing();
   $('hud').dataset.count = total;
@@ -355,6 +536,8 @@ async function buildAxes(saved) {
   state.captured = new Set();
   state.links = [];
   linkSeq = 0;
+  state.dev = {};
+  state.editor = { nodes: {}, view: { x: 60, y: 60, k: 1 } };
   state.milestones = saved?.milestones ? [...saved.milestones] : [];
   state.selected = state.hit = null;
   for (const cfg of AXES) {
@@ -379,17 +562,25 @@ async function buildAxes(saved) {
   if (saved) {
     const open = new Set(saved.expanded || []);
     for (const a of state.axes) for (const n of a.all) n.expanded = open.has(n.id) && n.kids.length > 0;
-    for (const [id, v] of Object.entries(saved.offs || {})) {
+    for (const [id, v] of Object.entries(saved.layout === LAYOUT ? saved.offs || {} : {})) {
       const n = state.axes.map((a) => a.byId.get(id)).find(Boolean);
       if (n) n.off.fromArray(v);
     }
     state.captured = new Set(saved.captured || []);
+    state.dev = { ...(saved.dev || {}) };
+    if (!saved.dev) seedDevFromMap();
+    for (const id of Object.keys(state.dev)) if (!nodeById(id)) delete state.dev[id];
+    if (saved.editor) {
+      state.editor.view = { x: 60, y: 60, k: 1, ...(saved.editor.view || {}) };
+      for (const [id, p] of Object.entries(saved.editor.nodes || {})) if (nodeById(id)) state.editor.nodes[id] = p;
+    }
     setLock(saved.lock || 'free');
     setSlider('depth', saved.depth ?? 2);
     setSlider('labelDepth', saved.labelDepth ?? 1);
     setStufe(saved.stufe || 2, true);
     state.filter.q = saved.filter?.q || '';
     state.filter.st = new Set(saved.filter?.st || []);
+    state.filter.dev = new Set(saved.filter?.dev || []);
     state.filter.axes = { x: true, y: true, z: true, ...(saved.filter?.axes || {}) };
     fltSync();
     state.home = saved.scale === S ? saved.home || null : null;
@@ -401,9 +592,13 @@ async function buildAxes(saved) {
     for (const l of saved.links || []) {
       if (nodeById(l.a) && nodeById(l.b)) state.links.push({ id: ++linkSeq, a: l.a, b: l.b, label: l.label || '' });
     }
-    if (f !== 1) for (const a of state.axes) for (const n of a.all) n.off.multiplyScalar(f);
+    if (f !== 1 && saved.layout === LAYOUT) for (const a of state.axes) for (const n of a.all) n.off.multiplyScalar(f);
+    sectorPref.on = saved.sectors !== false;
+    boxGroup.getObjectByName('sectors').visible = sectorPref.on;
+    $('sectorToggle').setAttribute('aria-pressed', String(sectorPref.on));
   } else {
     expandToDepth(state.depth);
+    seedDevFromMap();
   }
   fitSliderMax();
   computeFilter();
@@ -481,6 +676,28 @@ function renderPanel(n) {
   if (n.d.z) { add('div', 'Zielaktion: ' + n.d.z[0], 'k'); add('p', n.d.z[1]); }
   if (n.d.ak) { add('div', 'Gedankenanker', 'k'); add('p', n.d.ak); }
   if (n.d.p) { add('div', 'Pfad', 'k'); add('div', n.d.p, 'path'); }
+  add('div', 'Dev-Lifecycle', 'k');
+  const dv = document.createElement('div');
+  dv.className = 'devrow';
+  const cur = devIndex(state.dev[n.id] || '');
+  DEV.forEach((st, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = st.label;
+    b.style.setProperty('--c', st.color);
+    b.setAttribute('aria-pressed', String(i === cur));
+    if (i < cur) b.classList.add('past');
+    b.addEventListener('click', () => setDev(n, st.key));
+    dv.append(b);
+  });
+  if (cur >= 0) {
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.textContent = 'Entfernen';
+    x.addEventListener('click', () => setDev(n, ''));
+    dv.append(x);
+  }
+  el.append(dv);
   add('div', `Achse ${n.axis.key.toUpperCase()} · Ebene ${n.depth} · ${n.kids.length} Kinder`, 'k');
   if (typeof n.d.url === 'string' && n.d.url.startsWith('https://')) {
     const a = add('a', 'Verknüpftes Artifact öffnen ↗');
@@ -710,6 +927,13 @@ function attachAndShow(parent, tree) {
 
 
 
+$('sectorToggle').addEventListener('click', () => {
+  sectorPref.on = !sectorPref.on;
+  boxGroup.getObjectByName('sectors').visible = sectorPref.on;
+  $('sectorToggle').setAttribute('aria-pressed', String(sectorPref.on));
+  markDirty();
+});
+
 /* ---------- Ebenen-Stufen 1-4 ---------- */
 function setStufe(n, instant = false) {
   state.stufe = Math.min(4, Math.max(1, n));
@@ -742,12 +966,32 @@ function fltBuild() {
     });
     box.append(b);
   }
+  const dbox = $('fltDev');
+  dbox.replaceChildren();
+  const dc = { none: 0, wait: 0, test: 0, commit: 0, done: 0 };
+  for (const a of state.axes) for (const n of a.all) dc[state.dev[n.id] || 'none']++;
+  for (const [key, label, color] of [...DEV.map((d) => [d.key, d.label, d.color]), ['none', 'ohne Status', '#8C948F']]) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'chip';
+    b.dataset.dev = key;
+    b.setAttribute('aria-pressed', String(state.filter.dev.has(key)));
+    b.style.setProperty('--c', color);
+    const dot = document.createElement('i');
+    b.append(dot, `${label} ${dc[key]}`);
+    b.addEventListener('click', () => {
+      state.filter.dev.has(key) ? state.filter.dev.delete(key) : state.filter.dev.add(key);
+      fltApply();
+    });
+    dbox.append(b);
+  }
   $('fltInfo').dataset.total = total;
   fltSync();
 }
 function fltSync() {
   $('fltQ').value = state.filter.q;
   document.querySelectorAll('#fltChips .chip').forEach((b) => b.setAttribute('aria-pressed', String(state.filter.st.has(b.dataset.st))));
+  document.querySelectorAll('#fltDev .chip').forEach((b) => b.setAttribute('aria-pressed', String(state.filter.dev.has(b.dataset.dev))));
   document.querySelectorAll('#fltAxes button').forEach((b) => b.setAttribute('aria-pressed', String(state.filter.axes[b.dataset.axis])));
 }
 function fltApply() {
@@ -772,6 +1016,7 @@ document.querySelectorAll('#fltAxes button').forEach((b) => b.addEventListener('
 $('fltReset').addEventListener('click', () => {
   state.filter.q = '';
   state.filter.st.clear();
+  state.filter.dev.clear();
   state.filter.axes = { x: true, y: true, z: true };
   fltApply();
 });
@@ -913,6 +1158,272 @@ function renderLinkPanel() {
   }
 }
 
+
+/* ---------- Node-Editor (2D, wie n8n) ----------
+   Karten für Knoten der Mindmap, Drähte = dieselben Verknüpfungen wie im 3D-Raum (state.links). */
+const ED = { W: 210, H: 58, selLink: null, selNode: null, wire: null, drag: null, pan: null };
+const edView = $('edView'), edWorld = $('edWorld'), edWires = $('edWires');
+const SVGNS = 'http://www.w3.org/2000/svg';
+
+function edApplyView() {
+  const v = state.editor.view;
+  edWorld.style.transform = `translate(${v.x}px,${v.y}px) scale(${v.k})`;
+  edView.style.backgroundPosition = `${v.x}px ${v.y}px`;
+  edView.style.backgroundSize = `${24 * v.k}px ${24 * v.k}px`;
+}
+function edToWorld(ev) {
+  const r = edView.getBoundingClientRect(), v = state.editor.view;
+  return { x: (ev.clientX - r.left - v.x) / v.k, y: (ev.clientY - r.top - v.y) / v.k };
+}
+function edCenter() {
+  const r = edView.getBoundingClientRect(), v = state.editor.view;
+  return { x: (r.width / 2 - v.x) / v.k - ED.W / 2, y: (r.height / 2 - v.y) / v.k - ED.H / 2 };
+}
+function edAdd(n, at) {
+  if (state.editor.nodes[n.id]) return false;
+  const c = at || edCenter(), i = Object.keys(state.editor.nodes).length % 6;
+  state.editor.nodes[n.id] = [Math.round(c.x + i * 22), Math.round(c.y + i * 22)];
+  return true;
+}
+function edPath(x1, y1, x2, y2) {
+  const dx = Math.max(60, Math.abs(x2 - x1) * 0.5);
+  return `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
+}
+const svgEl = (tag, attrs) => {
+  const e = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  return e;
+};
+
+function edDrawWires() {
+  edWires.replaceChildren();
+  const pos = state.editor.nodes;
+  for (const l of state.links) {
+    const pa = pos[l.a], pb = pos[l.b];
+    if (!pa || !pb) continue;
+    const d = edPath(pa[0] + ED.W, pa[1] + ED.H / 2, pb[0], pb[1] + ED.H / 2);
+    const g = svgEl('g', { class: 'wire' + (ED.selLink === l.id ? ' sel' : ''), 'data-link': l.id });
+    g.append(svgEl('path', { d, class: 'hit' }), svgEl('path', { d, class: 'line', 'marker-end': 'url(#edArrow)' }));
+    if (l.label) {
+      const t = svgEl('text', { x: (pa[0] + ED.W + pb[0]) / 2, y: (pa[1] + pb[1]) / 2 + ED.H / 2 - 8, class: 'lbl' });
+      t.textContent = l.label;
+      g.append(t);
+    }
+    edWires.append(g);
+  }
+}
+
+function edRender() {
+  edWorld.querySelectorAll('.edn').forEach((e) => e.remove());
+  for (const [id, p] of Object.entries(state.editor.nodes)) {
+    const n = nodeById(id);
+    if (!n) continue;
+    const el = document.createElement('div');
+    el.className = 'edn' + (ED.selNode === id ? ' sel' : '');
+    el.dataset.id = id;
+    el.style.left = p[0] + 'px';
+    el.style.top = p[1] + 'px';
+    el.style.setProperty('--c', STATUS[n.d.s] || STATUS.info);
+    const title = document.createElement('div');
+    title.className = 't';
+    title.textContent = n.d.n;
+    const meta = document.createElement('div');
+    meta.className = 'm';
+    const dv = state.dev[id];
+    if (dv) {
+      const dot = document.createElement('i');
+      dot.style.background = DEV[devIndex(dv)].color;
+      dot.title = DEV[devIndex(dv)].label;
+      meta.append(dot);
+    }
+    meta.append(`${STATUS_TEXT[n.d.s] || n.d.s || '–'} · ${n.axis.key.toUpperCase()} · E${n.depth}`);
+    const pin = document.createElement('span'); pin.className = 'port in';
+    const pout = document.createElement('span'); pout.className = 'port out';
+    const x = document.createElement('button');
+    x.type = 'button'; x.className = 'edx'; x.textContent = '×'; x.title = 'Aus dem Editor entfernen';
+    x.addEventListener('click', () => { delete state.editor.nodes[id]; edRender(); markDirty(); });
+    el.append(pin, pout, title, meta, x);
+    edWorld.append(el);
+  }
+  edDrawWires();
+  edInfo();
+}
+function edInfo() {
+  const ids = Object.keys(state.editor.nodes);
+  const n = state.links.filter((l) => state.editor.nodes[l.a] && state.editor.nodes[l.b]).length;
+  $('edInfo').textContent = `${ids.length} Karten · ${n} Verbindungen`;
+}
+
+function edLayout() {
+  const ids = Object.keys(state.editor.nodes).filter((id) => nodeById(id));
+  const layer = Object.fromEntries(ids.map((id) => [id, 0]));
+  const ls = state.links.filter((l) => layer[l.a] !== undefined && layer[l.b] !== undefined);
+  for (let it = 0; it < ids.length; it++) {
+    let changed = false;
+    for (const l of ls) if (layer[l.b] < layer[l.a] + 1 && layer[l.a] + 1 <= ids.length) { layer[l.b] = layer[l.a] + 1; changed = true; }
+    if (!changed) break;
+  }
+  const linked = new Set(ls.flatMap((l) => [l.a, l.b]));
+  const cols = {};
+  for (const id of ids.sort((a, b) => (linked.has(b) - linked.has(a)) || nodeById(a).d.n.localeCompare(nodeById(b).d.n, 'de'))) (cols[layer[id]] ||= []).push(id);
+  for (const [c, list] of Object.entries(cols)) list.forEach((id, i) => { state.editor.nodes[id] = [c * (ED.W + 110), i * (ED.H + 26)]; });
+  edRender();
+  edFit();
+  markDirty();
+}
+function edFit() {
+  const ps = Object.values(state.editor.nodes);
+  const r = edView.getBoundingClientRect(), v = state.editor.view;
+  if (!ps.length) { v.x = 60; v.y = 60; v.k = 1; return edApplyView(); }
+  const x0 = Math.min(...ps.map((p) => p[0])), x1 = Math.max(...ps.map((p) => p[0])) + ED.W;
+  const y0 = Math.min(...ps.map((p) => p[1])), y1 = Math.max(...ps.map((p) => p[1])) + ED.H;
+  v.k = Math.min(1.2, Math.max(0.3, Math.min((r.width - 80) / (x1 - x0), (r.height - 80) / (y1 - y0))));
+  v.x = (r.width - (x1 - x0) * v.k) / 2 - x0 * v.k;
+  v.y = (r.height - (y1 - y0) * v.k) / 2 - y0 * v.k;
+  edApplyView();
+}
+
+function edOpen() {
+  $('ed').hidden = false;
+  const before = Object.keys(state.editor.nodes).length;
+  for (const l of state.links) for (const id of [l.a, l.b]) { const n = nodeById(id); if (n) edAdd(n, { x: 0, y: 0 }); }
+  edRender();
+  if (!before && Object.keys(state.editor.nodes).length) edLayout(); else edApplyView();
+}
+function edClose() { $('ed').hidden = true; ED.wire = ED.drag = ED.pan = null; }
+$('edToggle').addEventListener('click', () => ($('ed').hidden ? edOpen() : edClose()));
+$('edClose').addEventListener('click', edClose);
+$('edFit').addEventListener('click', edFit);
+$('edLayout').addEventListener('click', edLayout);
+$('edAddSel').addEventListener('click', () => {
+  const n = state.selected;
+  if (!n) return toast('Erst in der 3D-Ansicht einen Knoten wählen');
+  edAdd(n); edRender(); markDirty();
+});
+$('edAddKids').addEventListener('click', () => {
+  const n = state.selected;
+  if (!n) return toast('Erst in der 3D-Ansicht einen Knoten wählen');
+  edAdd(n);
+  const p = state.editor.nodes[n.id];
+  n.kids.slice(0, 40).forEach((k, i) => edAdd(k, { x: p[0] + ED.W + 90, y: p[1] + i * (ED.H + 14) }));
+  edRender(); edFit(); markDirty();
+});
+$('edQ').addEventListener('input', () => {
+  const q = $('edQ').value.trim().toLowerCase(), box = $('edResults');
+  box.replaceChildren();
+  if (!q) { box.hidden = true; return; }
+  const all = state.axes.flatMap((a) => a.all).filter((n) => !state.editor.nodes[n.id]
+    && (n.d.n.toLowerCase().includes(q) || (n.d.p || '').toLowerCase().includes(q))).slice(0, 30);
+  box.hidden = false;
+  if (!all.length) { box.textContent = 'Kein Treffer'; return; }
+  for (const n of all) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = `${n.d.n}  ·  ${n.axis.key.toUpperCase()} E${n.depth}`;
+    b.addEventListener('click', () => { edAdd(n); edRender(); markDirty(); b.remove(); });
+    box.append(b);
+  }
+});
+
+function edLink(a, b) {
+  const na = nodeById(a), nb = nodeById(b);
+  if (na && nb) addLink(na, nb);
+  edDrawWires(); edInfo();
+}
+edView.addEventListener('pointerdown', (ev) => {
+  if (ev.button !== 0) return;
+  const port = ev.target.closest('.port'), card = ev.target.closest('.edn'), wire = ev.target.closest('.wire');
+  if (ev.target.closest('.edx')) return;
+  const key = wire ? 'w' + wire.dataset.link : card && !port ? 'c' + card.dataset.id : '';
+  const now = performance.now();
+  if (key && ED.last && ED.last.key === key && now - ED.last.t < 400) { ED.last = null; return edDouble(wire, card); }
+  ED.last = key ? { key, t: now } : null;
+  edView.setPointerCapture(ev.pointerId);
+  if (port && card) {
+    ED.wire = { id: card.dataset.id, out: port.classList.contains('out') };
+    return;
+  }
+  if (card) {
+    const id = card.dataset.id;
+    ED.selNode = id; ED.selLink = null;
+    edWorld.querySelectorAll('.edn').forEach((e) => e.classList.toggle('sel', e.dataset.id === id));
+    ED.drag = { id, start: edToWorld(ev), orig: [...state.editor.nodes[id]], moved: false };
+    edDrawWires();
+    return;
+  }
+  if (wire) { ED.selLink = +wire.dataset.link; ED.selNode = null; edDrawWires(); return; }
+  ED.selLink = ED.selNode = null;
+  edWorld.querySelectorAll('.edn.sel').forEach((e) => e.classList.remove('sel'));
+  edDrawWires();
+  const v = state.editor.view;
+  ED.pan = { x: ev.clientX, y: ev.clientY, vx: v.x, vy: v.y };
+});
+edView.addEventListener('pointermove', (ev) => {
+  if (ED.drag) {
+    const w = edToWorld(ev), d = ED.drag;
+    const p = [Math.round(d.orig[0] + w.x - d.start.x), Math.round(d.orig[1] + w.y - d.start.y)];
+    state.editor.nodes[d.id] = p;
+    d.moved = true;
+    const el = edWorld.querySelector(`.edn[data-id="${CSS.escape(d.id)}"]`);
+    if (el) { el.style.left = p[0] + 'px'; el.style.top = p[1] + 'px'; }
+    edDrawWires();
+  } else if (ED.wire) {
+    const w = edToWorld(ev), p = state.editor.nodes[ED.wire.id];
+    const [x1, y1] = ED.wire.out ? [p[0] + ED.W, p[1] + ED.H / 2] : [p[0], p[1] + ED.H / 2];
+    edDrawWires();
+    const d = ED.wire.out ? edPath(x1, y1, w.x, w.y) : edPath(w.x, w.y, x1, y1);
+    edWires.append(svgEl('path', { d, class: 'line rubber' }));
+  } else if (ED.pan) {
+    const v = state.editor.view;
+    v.x = ED.pan.vx + ev.clientX - ED.pan.x;
+    v.y = ED.pan.vy + ev.clientY - ED.pan.y;
+    edApplyView();
+  }
+});
+edView.addEventListener('pointerup', (ev) => {
+  if (edView.hasPointerCapture(ev.pointerId)) edView.releasePointerCapture(ev.pointerId);
+  if (ED.wire) {
+    const t = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.edn');
+    if (t && t.dataset.id !== ED.wire.id) ED.wire.out ? edLink(ED.wire.id, t.dataset.id) : edLink(t.dataset.id, ED.wire.id);
+    else edDrawWires();
+  }
+  if (ED.drag?.moved || ED.pan) markDirty();
+  ED.wire = ED.drag = ED.pan = null;
+});
+edView.addEventListener('wheel', (ev) => {
+  ev.preventDefault();
+  const v = state.editor.view, r = edView.getBoundingClientRect();
+  const k = Math.min(2.5, Math.max(0.25, v.k * Math.exp(-ev.deltaY * 0.0015)));
+  const px = ev.clientX - r.left, py = ev.clientY - r.top;
+  v.x = px - ((px - v.x) * k) / v.k;
+  v.y = py - ((py - v.y) * k) / v.k;
+  v.k = k;
+  edApplyView();
+}, { passive: false });
+// Doppelklick selbst erkennen: Das Neuzeichnen beim ersten Klick ersetzt die Zielelemente,
+// dann feuert der Browser kein dblclick mehr.
+function edDouble(wire, card) {
+  if (wire) {
+    const l = state.links.find((x) => x.id === +wire.dataset.link);
+    const t = l && prompt('Beschriftung der Verbindung', l.label);
+    if (t !== null && t !== undefined && l) { l.label = t.trim().slice(0, 40); renderLinks(); renderLinkPanel(); edDrawWires(); markDirty(); }
+    return;
+  }
+  const n = nodeById(card.dataset.id);
+  if (!n) return;
+  edClose();
+  for (let p = n.parent; p; p = p.parent) { p.expanded = true; p.fcol = false; }
+  relayout();
+  select(n);
+  focusOn(n.world);
+}
+function edDeleteLink() {
+  if (ED.selLink === null) return;
+  state.links = state.links.filter((l) => l.id !== ED.selLink);
+  ED.selLink = null;
+  renderLinks(); renderLinkPanel(); edDrawWires(); edInfo(); markDirty();
+}
+
 /* ---------- Lexikon: alle Dokumente Schritt für Schritt erfassen ---------- */
 const lex = { entries: [], view: [], cur: null, shown: 300 };
 const docKey = (n) => n.d.p || [...ancestors(n), n.d.n].join('/');
@@ -1038,7 +1549,8 @@ $('lexExport').addEventListener('click', () => {
 /* ---------- Meilensteine: Zwischenstände markieren, Fortschritt messen ---------- */
 const METRIC_LABELS = {
   captured: 'Dokumente erfasst', docs: 'Dokumente gesamt', nodes: 'Knoten', links: 'Verknüpfungen',
-  moved: 'Verschobene Äste', attached: 'Angehängte Scans',
+  moved: 'Verschobene Äste', attached: 'Angehängte Scans', volume: 'Volumen (k Einh.³)',
+  devWait: 'Dev Wartebereich', devTest: 'Dev Test', devCommit: 'Dev Commit', devDone: 'Dev abgeschlossen',
 };
 
 function currentMetrics() {
@@ -1046,7 +1558,10 @@ function currentMetrics() {
   for (const a of state.axes) for (const n of a.all) { nodes++; if (n.off.lengthSq() > 0) moved++; }
   const docs = lex.entries.length;
   const captured = lex.entries.filter((e) => state.captured.has(e.key)).length;
-  return { nodes, docs, captured, links: state.links.length, moved, attached: state.attachLog.length };
+  const volume = Math.round(state.axes.reduce((t, a) => t + volumeK(a), 0));
+  const dv = devCounts();
+  return { nodes, docs, captured, links: state.links.length, moved, attached: state.attachLog.length, volume,
+    devWait: dv.wait, devTest: dv.test, devCommit: dv.commit, devDone: dv.done };
 }
 
 function markMilestone(name, note, auto = false) {
@@ -1183,8 +1698,9 @@ function snapshot(nested = false) {
   }
   return {
     v: 1, savedAt: new Date().toISOString(),
-    scale: S, stufe: state.stufe, home: state.home,
-    filter: { q: state.filter.q, st: [...state.filter.st], axes: state.filter.axes }, links: state.links.map(({ a, b, label }) => ({ a, b, label })),
+    scale: S, layout: LAYOUT, sectors: sectorPref.on, stufe: state.stufe, home: state.home,
+    filter: { q: state.filter.q, st: [...state.filter.st], dev: [...state.filter.dev], axes: state.filter.axes },
+    dev: state.dev, editor: state.editor, links: state.links.map(({ a, b, label }) => ({ a, b, label })),
     lock: state.lock, depth: state.depth, labelDepth: state.labelDepth,
     expanded, offs, attach: state.attachLog, captured: [...state.captured],
     ...(nested ? {} : { milestones: state.milestones.filter((m) => !m.seed) }),
@@ -1221,6 +1737,13 @@ $('export').addEventListener('click', () => {
 addEventListener('beforeunload', (e) => { if (dirty) e.preventDefault(); });
 
 addEventListener('keydown', (e) => {
+  if (!$('ed').hidden) {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); return save(); }
+    if (e.target.matches('input')) return;
+    if (e.key === 'Escape') edClose();
+    else if (e.key === 'Delete' || e.key === 'Backspace') edDeleteLink();
+    return;
+  }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); return save(); }
   if (e.target.matches('input')) return;
   const k = e.key.toLowerCase();
@@ -1287,7 +1810,7 @@ controls.addEventListener('start', () => { fly = null; });
     toast('Daten konnten nicht geladen werden: ' + e.message);
   }
   window.__sandbox = {
-    state, snapshot, relayout,
+    state, snapshot, relayout, select,
     project(n) {
       const r = canvas.getBoundingClientRect(), v = n.world.clone().project(camera);
       return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height };

@@ -38,6 +38,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #panel .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-top:8px}
 #panel .path{font:11.5px ui-monospace,monospace;color:var(--muted);word-break:break-all}
 #panel a{color:var(--accent)}
+#stat{position:absolute;left:12px;top:8px;color:var(--muted);font:12px ui-monospace,monospace;pointer-events:none;background:color-mix(in srgb,var(--bg) 70%,transparent);padding:2px 8px;border-radius:6px;white-space:nowrap}
 #hud{position:absolute;left:12px;bottom:10px;color:var(--muted);font-size:12px;pointer-events:none;max-width:60%}
 #hud b{color:var(--ink);font-weight:500}
 #toast{position:absolute;left:50%;top:12px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:7px 12px;border-radius:7px;opacity:0;transition:opacity .25s;pointer-events:none}
@@ -97,6 +98,38 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 .chip i{width:9px;height:9px;border-radius:50%;background:var(--c);display:inline-block}
 .chip[aria-pressed=true]{border-color:var(--c);box-shadow:inset 0 0 0 1px var(--c)}
 @media (max-width:760px){#flt{width:auto;right:10px;max-height:42%}}
+#ed{position:absolute;inset:0;z-index:30;background:var(--bg);display:flex;flex-direction:column}
+#ed[hidden]{display:none}
+.edbar{display:flex;gap:8px;align-items:center;padding:8px 12px;background:var(--surface);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.edbar input{width:260px}
+#edInfo{color:var(--muted)}
+.edbody{position:relative;flex:1;min-height:0}
+#edView{position:absolute;inset:0;overflow:hidden;background-image:radial-gradient(var(--line) 1.2px,transparent 1.3px);background-size:24px 24px;cursor:grab;touch-action:none}
+#edWorld{position:absolute;left:0;top:0;transform-origin:0 0}
+.edn{position:absolute;width:210px;height:58px;background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--c);border-radius:8px;padding:6px 12px;cursor:move;user-select:none}
+.edn.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.edn .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.edn .m{color:var(--muted);font-size:11px;display:flex;align-items:center;gap:5px;white-space:nowrap;overflow:hidden}
+.edn .m i{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+.port{position:absolute;top:50%;width:14px;height:14px;margin-top:-7px;border-radius:50%;background:var(--bg);border:2px solid #F2C14E;cursor:crosshair}
+.port.in{left:-10px}.port.out{right:-9px}
+.port:hover{background:#F2C14E}
+.edx{position:absolute;top:-9px;right:6px;padding:0 6px;line-height:16px;font-size:13px;display:none}
+.edn:hover .edx{display:block}
+#edSvg .wire .hit{fill:none;stroke:transparent;stroke-width:14;cursor:pointer;pointer-events:stroke}
+#edSvg .wire .line{fill:none;stroke:#F2C14E;stroke-width:2.2;pointer-events:none}
+#edSvg .wire.sel .line{stroke:#fff;stroke-width:3.2}
+#edSvg .line.rubber{fill:none;stroke:#F2C14E;stroke-width:2;stroke-dasharray:6 4;pointer-events:none}
+#edSvg .lbl{fill:#F2C14E;font:12px system-ui,sans-serif;text-anchor:middle;paint-order:stroke;stroke:var(--bg);stroke-width:4px;pointer-events:none}
+#edResults[hidden]{display:none}
+#edResults{position:absolute;left:12px;top:8px;z-index:5;width:340px;max-height:50%;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px;display:grid;gap:2px}
+#edResults button{text-align:left;border:0;background:none;padding:5px 6px}
+#edResults button:hover{background:var(--bg)}
+.edhint{position:absolute;left:12px;bottom:8px;right:12px;color:var(--muted);font-size:12px;pointer-events:none}
+.devrow{display:flex;flex-wrap:wrap;gap:4px}
+.devrow button{padding:4px 8px}
+.devrow button[aria-pressed=true]{background:var(--c);color:#0F1512;border-color:var(--c)}
+.devrow button.past{border-color:var(--c);color:var(--c)}
 @media (max-width:760px){#panel{width:auto;left:10px;top:auto;bottom:10px;max-height:45%}#hud{display:none}}
 </style>
 </head>
@@ -125,8 +158,10 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <div class="grp"><input id="q" type="search" placeholder="Knoten suchen …" autocomplete="off"><button type="button" id="qNext">Weiter</button></div>
     <span class="spacer"></span>
     <div class="grp">
+      <button type="button" id="edToggle" title="Verknüpfungen als Karten und Drähte bearbeiten, wie in n8n">Node-Editor</button>
       <button type="button" id="linkMode" aria-pressed="false" title="Taste L: von Knoten zu Knoten ziehen, um sie zu verknüpfen">Verknüpfen</button>
       <button type="button" id="linksToggle" title="Verknüpfungen bearbeiten">Verknüpfungen</button>
+      <button type="button" id="sectorToggle" aria-pressed="true" title="Die drei 120°-Sektoren der Äste ein-/ausblenden">Sektoren</button>
       <button type="button" id="fltToggle" title="Knoten dynamisch filtern">Filter</button>
       <button type="button" id="msToggle" title="Zwischenstände markieren und Fortschritt vergleichen">Meilensteine</button>
       <button type="button" id="lexToggle" title="Alle Dokumente erfassen, Schritt für Schritt">Lexikon</button>
@@ -143,6 +178,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
   <div id="stage">
     <canvas id="c"></canvas>
     <div id="tip"></div>
+    <div id="stat"></div>
     <div id="hud"><b>Maus:</b> links ziehen = drehen · rechts ziehen = verschieben · Rad = Zoom · <b>Knoten:</b> ziehen = Ast bewegen · Klick = auf-/zuklappen · Doppelklick = fokussieren · Tasten 1–4 = Ebenen-Stufe · X/Y/Z = Achse sperren · <b>Verknüpfen:</b> Taste L oder Shift halten, dann von Knoten zu Knoten ziehen</div>
     <aside id="lex" hidden>
       <div class="row"><b>Lexikon</b><span id="lexProg"></span><button type="button" id="lexClose" aria-label="Schließen">×</button></div>
@@ -151,11 +187,35 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
       <div id="lexList"></div>
       <div class="row"><button type="button" id="lexExport">Als Markdown exportieren</button></div>
     </aside>
+    <section id="ed" hidden aria-label="Node-Editor">
+      <div class="edbar">
+        <b>Node-Editor</b>
+        <input id="edQ" type="search" placeholder="Knoten suchen und hinzufügen …" autocomplete="off">
+        <button type="button" id="edAddSel" title="Den in 3D gewählten Knoten als Karte hinzufügen">+ Auswahl</button>
+        <button type="button" id="edAddKids" title="Gewählten Knoten samt Kindern hinzufügen">+ mit Kindern</button>
+        <button type="button" id="edLayout">Auto-Anordnen</button>
+        <button type="button" id="edFit">Alles zeigen</button>
+        <span class="spacer"></span>
+        <span id="edInfo"></span>
+        <button type="button" id="edClose" class="primary">Zurück zu 3D</button>
+      </div>
+      <div class="edbody">
+        <div id="edResults" hidden></div>
+        <div id="edView">
+          <div id="edWorld">
+            <svg id="edSvg" width="1" height="1" style="overflow:visible"><defs><marker id="edArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#F2C14E"/></marker></defs><g id="edWires"></g></svg>
+          </div>
+        </div>
+        <div class="edhint">Karte ziehen: verschieben · Rad: Zoom · Vom Port (Kreis) zu einer anderen Karte ziehen: verbinden · Draht anklicken + Entf: löschen · Doppelklick auf Draht: beschriften · Doppelklick auf Karte: in 3D zeigen</div>
+      </div>
+    </section>
     <aside id="flt" hidden>
       <div class="row"><b>Filter</b><span class="spacer"></span><button type="button" id="fltClose" aria-label="Schließen">×</button></div>
       <input id="fltQ" type="search" placeholder="Name oder Pfad enthält …" autocomplete="off">
       <div class="k">Status / Typ</div>
       <div id="fltChips" class="chips"></div>
+      <div class="k">Dev-Lifecycle</div>
+      <div id="fltDev" class="chips"></div>
       <div class="k">Achsen</div>
       <div id="fltAxes" class="chips">
         <button type="button" class="chip" data-axis="x" style="--c:#E4674F" aria-pressed="true"><i></i>X</button>
