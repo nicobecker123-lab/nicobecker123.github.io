@@ -98,6 +98,12 @@ Button **Lexikon**: listet jedes Dokument (Datei-Knoten) aller Achsen, nach Ordn
 - Filter nach Name oder Ordner, „nur offene“ blendet Erfasstes aus. Angehängte Scans (z. B. der Konzeptordner) erscheinen automatisch.
 - Der Erfassungsstand steckt im gespeicherten Zustand. **Als Markdown exportieren** schreibt `lexikon.md` mit Häkchen.
 
+## Trainingshub
+Ast unter **Modelle** mit acht Lexikon-Einträgen rund ums ML-Training:
+- **Standardvokabular:** Epoch, Batch, Iteration, Loss, Learning Rate — Epoch ist angelehnt an den YouTube-Short „What is an Epoch in Machine Learning?“, die übrigen ergänzen den Kontext.
+- **Eigene SystemOS-Begriffe:** Darwin Loop (Trainingszyklus mit fest 7 Iterationen), Hybrid-Sync (erste Phase läuft synchron/blockierend) und Async (schließt direkt an Hybrid-Sync an, schaltet auf asynchrone Ausführung um).
+- Darwin Loop → Iteration und Hybrid-Sync → Async sind als feste Verknüpfungen (siehe „Verknüpfungen“) vorverdrahtet, damit der Zusammenhang auch im 3D-View sichtbar ist.
+
 ## Zustand speichern
 - **Zustand speichern** (Strg+S): Browser-Speicher (`localStorage`), wird beim nächsten Öffnen wiederhergestellt.
 - **Export / Import:** dieselbe Momentaufnahme als JSON-Datei für den nächsten Schritt oder ein anderes Gerät.

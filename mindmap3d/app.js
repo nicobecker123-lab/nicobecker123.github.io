@@ -984,6 +984,7 @@ fileInput.addEventListener('change', async () => {
     if (json.v !== 1) return toast('Keine Zustandsdatei dieser App');
     await buildAxes(json);
     await ensureSeedMilestones();
+    seedLinks();
     persist(json);
     toast('Zustand importiert');
   }
@@ -2274,6 +2275,25 @@ async function ensureSeedMilestones() {
   } catch { /* Seeds sind optional */ }
 }
 
+/* Feste Querverweise zwischen Lexikon-Einträgen, per Dokumentpfad (d.p) statt Knoten-ID,
+   damit sie unabhängig von der Position im Baum funktionieren. */
+const LINK_SEEDS = [
+  ['TRAININGSHUB/darwin-loop.md', 'TRAININGSHUB/iteration.md', 'besteht aus'],
+  ['TRAININGSHUB/hybrid-sync.md', 'TRAININGSHUB/async.md', 'gefolgt von'],
+];
+function seedLinks() {
+  const byPath = new Map();
+  for (const a of state.axes) for (const n of a.all) if (n.d.p) byPath.set(n.d.p, n);
+  let added = false;
+  for (const [pa, pb, label] of LINK_SEEDS) {
+    const a = byPath.get(pa), b = byPath.get(pb);
+    if (!a || !b || state.links.some((l) => l.a === a.id && l.b === b.id)) continue;
+    state.links.push({ id: ++linkSeq, a: a.id, b: b.id, label });
+    added = true;
+  }
+  if (added) { renderLinks(); renderLinkPanel(); }
+}
+
 const pct = (a, b) => (b ? ((a / b) * 100).toFixed(1).replace('.', ',') + ' %' : '–');
 const fmtDate = (iso) => new Date(iso).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' });
 
@@ -2971,6 +2991,7 @@ controls.addEventListener('start', () => { fly = null; });
   try {
     await buildAxes(saved);
     await ensureSeedMilestones();
+    seedLinks();
     if (!saved && !state.milestones.some((m) => !m.seed)) markMilestone(`Zwischenstand ${new Date().toLocaleDateString('de-DE')} · Ausgangspunkt`, 'Automatisch beim ersten Öffnen markiert: Basis für den Fortschrittsvergleich.', true);
     if (state.milestones.some((m) => m.auto)) { persist(snapshot()); dirty = false; $('save').textContent = 'Zustand speichern'; }
     if (saved) toast(`Gespeicherten Zustand geladen (${new Date(saved.savedAt).toLocaleString('de-DE')})`);
