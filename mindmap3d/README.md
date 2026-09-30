@@ -12,6 +12,14 @@ Start: Repo über GitHub Pages ausliefern und `/mindmap3d/` öffnen, lokal z. B.
 - **Tiefe:** klappt alle Knoten bis zur gewählten Tiefe auf. **Labels:** bis zu welcher Tiefe Beschriftungen stehen.
 - **Suche:** Name oder Pfad, „Weiter“ springt zum nächsten Treffer und klappt den Weg dorthin auf.
 
+## Monitor (läuft dauerhaft)
+Die Leiste unten (Klick öffnet Details) läuft ab dem Laden im Takt, ohne Trigger und ohne Ausschalter. Sie zeigt nur an und führt nie etwas aus.
+- **[+] WcT-Kollaps** (Kohärenz über 85 %) und **[~] Divergenz-Kavität** (unter 70 %), dazwischen neutral, mit 2 Punkten Hysterese. **Kohärenz** = 100 % × (1 − Widersprüche ÷ relevante Punkte). Widersprüche sind z. B. „Abgeschlossen“ bei Status Risiko/Offen, „Wartebereich“ bei Status Live, Risiko ohne Dev-Stand oder eine Verknüpfung mit fehlendem Endpunkt. Die Formel und die Widersprüche stehen im Panel.
+- **[!] CreoAnalyze (Execution Intent):** Alle Knotentexte werden reihum dauerhaft auf Ausführungs-Muster geprüft (PowerShell/Shell-Befehle, eval/exec, kodierte Nutzlasten, Prompt-Injection). Dazu wird alles geprüft, was du tippst oder einfügst. Bestehende Treffer werden beim Start als Basis erfasst, nur **neue** lösen eine Anfrage aus. Treffer im eigenen Bestand lassen sich als „bekannt“ bestätigen.
+- **Seat Governance:** Ein neuer Treffer oder der Wechsel in die Divergenz-Kavität legt eine offene Anfrage an (fail-closed). Der Operator gibt sie frei oder lehnt sie ab. Die Freigabe ist nur ein Vermerk. Dazu gibt es Zähler (Seat Redirects, Abbadon Vetos) und das Protokoll `TAIL_CALL.LOG`.
+- Anfragen, Bestätigungen und Ergebnisse werden mit dem Zustand gespeichert und laufen in die Meilensteine ein.
+- Das Neural HUD (`systemos_neural_hud.html`) würfelt die Kohärenz mit `Math.random()` und löst nur per Knopf aus. Hier wird sie aus den Daten des Sandkastens berechnet. Das Mikrofon des HUD ist eine Attrappe und wurde nicht übernommen.
+
 ## Objektiv
 - **Objektiv** (Taste O): Eine Linse folgt dem Mauszeiger, dunkelt alles außerhalb ab und beschriftet nur die (bis zu 40) Knoten darin. Der Regler daneben stellt die Linsengröße ein. Die Linse ändert nichts an den Daten, sie ist eine reine Blickhilfe.
 - **Objektive (Voreinstellungen)** im Filter-Panel: Alles, Risiko, Wartebereich, Abgeschlossen, Verknüpft. Sie setzen den Filter mit einem Klick.
@@ -60,7 +68,7 @@ Button **Lexikon**: listet jedes Dokument (Datei-Knoten) aller Achsen, nach Ordn
 ## Zustand speichern
 - **Zustand speichern** (Strg+S): Browser-Speicher (`localStorage`), wird beim nächsten Öffnen wiederhergestellt.
 - **Export / Import:** dieselbe Momentaufnahme als JSON-Datei für den nächsten Schritt oder ein anderes Gerät.
-- Gespeichert werden Startansicht, Ebenen-Stufe, Node-Editor, Dev-Stände, Obsidian-Konfiguration, Filter, Verknüpfungen, aufgeklappte Knoten, verschobene Äste, angehängte Scans, Lexikon-Stand und Einstellungen.
+- Gespeichert werden Startansicht, Ebenen-Stufe, Node-Editor, Dev-Stände, Obsidian-Konfiguration, Governance-Anfragen, Filter, Verknüpfungen, aufgeklappte Knoten, verschobene Äste, angehängte Scans, Lexikon-Stand und Einstellungen.
 
 ## Daten
 - `data/systemos.json` ist die „SystemOS Zustandskarte“ (Claude-Artifact). In `app.js` (`AXES`) hat jede Achse ein eigenes

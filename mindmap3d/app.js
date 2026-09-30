@@ -195,6 +195,8 @@ const state = {
   links: [],            // freie Verknüpfungen [{id, a, b, label}] zwischen Knoten-IDs
   linkMode: false,
   obsidian: { vault: 'Sy0sObsidian', folder: 'SystemOS-Mindmap', links: true },   // Obsidian-Konfiguration
+  audit: [],            // Seat Governance: Weiterleitungen zur Freigabe durch den Operator
+  intentOk: new Set(),  // als bekannt bestätigte Execution-Intent-Treffer (Schlüssel)
   dev: {},              // Dev-Lifecycle je Knoten-ID: wait | test | commit | done
   editor: { nodes: {}, view: { x: 60, y: 60, k: 1 } },   // Node-Editor: Karten-Positionen und Ansicht
   stufe: 2,             // Ebenen-Stufe 1-4 (Abstand und Platz)
@@ -541,6 +543,8 @@ async function buildAxes(saved) {
   state.links = [];
   linkSeq = 0;
   state.dev = {};
+  state.intentOk = new Set();
+  state.audit = [];
   state.editor = { nodes: {}, view: { x: 60, y: 60, k: 1 } };
   state.milestones = saved?.milestones ? [...saved.milestones] : [];
   state.selected = state.hit = null;
@@ -571,6 +575,9 @@ async function buildAxes(saved) {
       if (n) n.off.fromArray(v);
     }
     state.captured = new Set(saved.captured || []);
+    state.intentOk = new Set(saved.intentOk || []);
+    state.audit = [...(saved.audit || [])];
+    MON.auditKeys = new Set(state.audit.filter((e) => e.key).map((e) => e.key));
     Object.assign(state.obsidian, saved.obsidian || {});
     obSync();
     state.dev = { ...(saved.dev || {}) };
@@ -1833,6 +1840,7 @@ $('lexExport').addEventListener('click', () => {
 const METRIC_LABELS = {
   captured: 'Dokumente erfasst', docs: 'Dokumente gesamt', nodes: 'Knoten', links: 'Verknüpfungen',
   moved: 'Verschobene Äste', attached: 'Angehängte Scans', volume: 'Volumen (k Einh.³)',
+  coherence: 'Kohärenz (%)', intent: 'Intent-Hinweise', auditOpen: 'Governance offen',
   devWait: 'Dev Wartebereich', devTest: 'Dev Test', devCommit: 'Dev Commit', devDone: 'Dev abgeschlossen',
 };
 
@@ -1843,7 +1851,9 @@ function currentMetrics() {
   const captured = lex.entries.filter((e) => state.captured.has(e.key)).length;
   const volume = Math.round(state.axes.reduce((t, a) => t + volumeK(a), 0));
   const dv = devCounts();
+  monCoherence();
   return { nodes, docs, captured, links: state.links.length, moved, attached: state.attachLog.length, volume,
+    coherence: Math.round(MON.coh), intent: monUniqueIntent().length, auditOpen: state.audit.filter((e) => e.status === 'PENDING').length,
     devWait: dv.wait, devTest: dv.test, devCommit: dv.commit, devDone: dv.done };
 }
 
@@ -1972,6 +1982,275 @@ $('msAdd').addEventListener('click', () => {
   toast(`Zwischenstand „${name}“ markiert. Mit „Zustand speichern“ sichern.`);
 });
 
+
+/* ---------- Monitor: dauerhaft laufende Kohärenz- und Execution-Intent-Prüfung ----------
+   Läuft ab dem Laden im Takt (kein Trigger, kein Ausschalter) und zeigt nur an: Es wird nichts ausgeführt
+   oder blockiert.
+   Kohärenz = 100 % * (1 - Widersprüche / relevante Punkte). Relevant sind Knoten mit Dev-Stand oder Status
+   „Risiko“ (ein Punkt zählt einmal, auch wenn er auf mehreren Achsen liegt) und Verknüpfungen.
+   Widerspruch: „Abgeschlossen“ bei Status Risiko/Offen · „Wartebereich“ bei Status Live ·
+   Risiko ohne Dev-Stand · Verknüpfung mit fehlendem Endpunkt. */
+const COH_HI = 85, COH_LO = 70, COH_HYST = 2;
+const MON = { coh: 100, mode: null, prev: null, baseline: false, log: [], auditKeys: new Set(), sig: '', coh0: false, contra: [], intent: new Map(), ingress: [], all: null, total: -1, axesRef: null, idx: 0, tick: 0, lastToast: 0 };
+
+const INTENT_RULES = [
+  ['PowerShell-Ausführung', /invoke-expression|\biex\b|-encodedcommand|set-executionpolicy|downloadstring|start-process\s+-verb\s+runas/i],
+  ['Shell / Systembefehl', /\bcmd(\.exe)?\s*\/c\b|\bpowershell(\.exe)?\s+-\w|\bbash\s+-c\b|\bcurl\b[^\n]{0,80}\|\s*(ba)?sh|\bwget\b[^\n]{0,80}\|\s*(ba)?sh|\brm\s+-rf\b|certutil[^\n]{0,40}-urlcache|\breg\s+add\b|schtasks[^\n]{0,20}\/create/i],
+  ['Skript / eval', /<script\b|javascript:|\beval\s*\(|\bexec\s*\(|os\.system\s*\(|subprocess\.(run|popen|call)|shell\s*=\s*true|child_process/i],
+  ['Kodierte Nutzlast', /[A-Za-z0-9+/]{120,}={0,2}/],
+  ['Prompt-Injection', /ignore (all |any )?(previous|prior|above) (instructions|rules)|ignoriere (alle )?(vorherigen|bisherigen|obigen) (anweisungen|regeln)|disregard (the )?system prompt|reveal (the )?system prompt|you are now\b|du bist jetzt\b|execute the following|führe (den folgenden|diesen) (befehl|code) aus/i],
+];
+function intentHits(text) {
+  const t = text.length > 4000 ? text.slice(0, 4000) : text;
+  return INTENT_RULES.filter(([, re]) => re.test(t)).map(([name]) => name);
+}
+
+function monLog(msg, cls = '') {
+  MON.log.unshift({ t: new Date(), msg, cls });
+  MON.log.length = Math.min(MON.log.length, 60);
+}
+// Seat Governance (wie audit.json im Neural HUD): Alles, was nicht eindeutig unkritisch ist, wird nicht still
+// behandelt, sondern als offene Anfrage zur Entscheidung des Operators vorgemerkt. Fail-closed: Ohne Freigabe
+// bleibt sie PENDING. Die Freigabe ist nur ein Vermerk, der Monitor führt nie etwas aus.
+function auditAdd(type, source, reason, key, sample = '') {
+  if (key && MON.auditKeys.has(key)) return;
+  if (key) MON.auditKeys.add(key);
+  const n = state.audit.length + 1;
+  state.audit.push({
+    id: `REQ_${String(n).padStart(4, '0')}`, t: new Date().toISOString(), type, source, reason, sample, key: key || '',
+    capability: type === 'execute' ? 'EXECUTE_ROOT' : 'COGNITION_ONLY', status: 'PENDING',
+  });
+  if (state.audit.length > 200) state.audit.shift();
+  monLog(type === 'execute' ? `[GATE: VETO] Ausführungs-Absicht (${source}): ${reason}. Weiter an Seat Governance.` : `[DIVERGENZ] ${reason}. Weiter an Seat Governance.`, type === 'execute' ? 'bad' : 'warn');
+  if (Date.now() - MON.lastToast > 3000) {
+    MON.lastToast = Date.now();
+    toast(type === 'execute' ? `CreoAnalyze: Ausführungs-Absicht (${source}). Anfrage wartet auf Freigabe, nichts wird ausgeführt.` : `Divergenz-Kavität: Anfrage an Seat Governance vorgemerkt.`);
+  }
+  markDirty();
+  monRender();
+}
+function auditResolve(e, res) {
+  e.status = res === 'approve' ? 'APPROVED' : 'DENIED';
+  if (res === 'approve' && e.key && e.type === 'execute') state.intentOk.add(e.key.replace(/^(n|in):/, ''));
+  monLog(`Seat Governance: ${e.id} vom Operator ${e.status === 'APPROVED' ? 'freigegeben (nur Vermerk)' : 'abgelehnt'}`, res === 'approve' ? 'ok' : 'bad');
+  markDirty();
+  monRender();
+}
+
+function monNodes() {
+  const total = state.axes.reduce((t, a) => t + a.all.length, 0);
+  if (!MON.all || MON.axesRef !== state.axes || MON.total !== total) {
+    MON.all = state.axes.flatMap((a) => a.all);
+    MON.axesRef = state.axes;
+    MON.total = total;
+    MON.idx = 0;
+  }
+  return MON.all;
+}
+
+function monCoherence() {
+  const seen = new Set(), contra = [];
+  let relevant = 0;
+  for (const a of state.axes) for (const n of a.all) {
+    const dev = state.dev[n.id], st = n.d.s;
+    if (!dev && st !== 'risiko') continue;
+    const key = `${n.d.p || n.d.n}|${dev || '-'}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    relevant++;
+    if (dev === 'done' && (st === 'risiko' || st === 'offen')) contra.push([n, `Abgeschlossen, aber Status ${STATUS_TEXT[st]}`]);
+    else if (!dev && st === 'risiko') contra.push([n, 'Risiko ohne Dev-Stand']);
+    else if (dev === 'wait' && st === 'live') contra.push([n, 'Live, aber noch im Wartebereich']);
+  }
+  for (const l of state.links) {
+    relevant++;
+    if (!nodeById(l.a) || !nodeById(l.b)) contra.push([null, 'Verknüpfung mit fehlendem Endpunkt']);
+  }
+  MON.contra = contra;
+  MON.coh = relevant ? 100 * (1 - contra.length / relevant) : 100;
+  const c = MON.coh;
+  let m = MON.mode;
+  if (c > COH_HI) m = 'kollaps';
+  else if (c < COH_LO) m = 'kavitaet';
+  else if (m === 'kollaps' && c > COH_HI - COH_HYST) m = 'kollaps';
+  else if (m === 'kavitaet' && c < COH_LO + COH_HYST) m = 'kavitaet';
+  else m = 'neutral';
+  MON.prev = MON.mode;
+  MON.mode = m;
+  if (MON.prev !== m) {
+    const first = MON.prev === null;
+    if (m === 'kollaps') monLog(`[WcT-KOLLAPS] Kohärenz ${c.toFixed(1)} % über ${COH_HI} %: stabil, Zustand verankert.`, 'ok');
+    else if (m === 'kavitaet') {
+      monLog(`[DIVERGENZ] Kohärenz ${c.toFixed(1)} % unter ${COH_LO} %.`, 'warn');
+      if (!first) auditAdd('divergence', 'Kohärenz-Monitor', `Kohärenz (${c.toFixed(1)} %) unter ${COH_LO} %`, `coh:${Date.now()}`);
+    } else monLog(`[NEUTRAL] Kohärenz ${c.toFixed(1)} % zwischen ${COH_LO} % und ${COH_HI} %.`);
+  }
+}
+
+function monScanChunk(size = 400) {
+  const all = monNodes();
+  for (let i = 0; i < size && all.length; i++) {
+    const n = all[MON.idx++ % all.length];
+    const text = `${n.d.n}\n${n.d.d || ''}\n${n.d.m || ''}\n${n.d.ak || ''}\n${n.d.z ? n.d.z[1] : ''}`;
+    const hits = intentHits(text);
+    if (hits.length) {
+      const had = MON.intent.has(n.id), key = n.d.p || n.d.n;
+      MON.intent.set(n.id, hits);
+      if (!had && MON.baseline && !state.intentOk.has(key)) auditAdd('execute', `Knoten „${n.d.n}“`, hits.join(', '), `n:${key}`);
+    } else MON.intent.delete(n.id);
+  }
+  if (!MON.baseline && all.length && MON.idx >= all.length) {
+    MON.baseline = true;
+    monLog(`Basis erfasst: ${monUniqueIntent().length} bekannte Hinweise im Bestand, nur neue lösen künftig eine Anfrage aus.`);
+  }
+}
+
+function monIngress(text, src) {
+  if (!text) return;
+  const hits = intentHits(text);
+  if (!hits.length) return;
+  MON.ingress.unshift({ t: new Date(), src, hits, sample: text.replace(/\s+/g, ' ').slice(0, 90) });
+  MON.ingress.length = Math.min(MON.ingress.length, 20);
+  auditAdd('execute', `Eingang ${src}`, hits.join(', '), `in:${text.slice(0, 60)}`, text.replace(/\s+/g, ' ').slice(0, 90));
+  monRender();
+}
+// Alles, was von außen hereinkommt: Tippen in Textfelder und Einfügen aus der Zwischenablage
+document.addEventListener('input', (e) => {
+  const t = e.target;
+  if (t instanceof HTMLInputElement && (t.type === 'text' || t.type === 'search')) monIngress(t.value, t.id || 'Eingabe');
+}, true);
+document.addEventListener('paste', (e) => monIngress(e.clipboardData?.getData('text') || '', 'Einfügen'), true);
+
+const MON_LABEL = { kollaps: '[+] WcT-Kollaps', kavitaet: '[~] Divergenz-Kavität' };
+function monUniqueIntent() {
+  const seen = new Map();
+  for (const [id, hits] of MON.intent) {
+    const n = nodeById(id);
+    const key = n ? n.d.p || n.d.n : '';
+    if (n && !state.intentOk.has(key) && !seen.has(key)) seen.set(key, { n, hits, key });
+  }
+  return [...seen.values()];
+}
+function monRender() {
+  const bar = $('monBar');
+  bar.dataset.mode = MON.mode;
+  document.querySelectorAll('#monBar [data-m]').forEach((p) => p.classList.toggle('on', p.dataset.m === MON.mode));
+  $('monVal').textContent = `${MON.coh.toFixed(0)} %`;
+  const nHits = monUniqueIntent().length + MON.ingress.length;
+  const it = $('monIntent');
+  it.classList.toggle('alert', nHits > 0);
+  const open = state.audit.filter((e) => e.status === 'PENDING').length;
+  it.textContent = (nHits ? `[!] CreoAnalyze · ${nHits} Hinweis${nHits === 1 ? '' : 'e'}` : '[!] CreoAnalyze · ruhig') + (open ? ` · ${open} offen` : '');
+  it.classList.toggle('alert', nHits > 0 || open > 0);
+  const sig = `${MON.contra.length}|${MON.intent.size}|${MON.ingress.length}|${MON.coh.toFixed(1)}|${state.audit.map((e) => e.status[0]).join('')}|${MON.log.length}`;
+  if (!$('monp').hidden && sig !== MON.sig) { MON.sig = sig; monPanel(); }
+}
+
+function monGo(n) {
+  for (let p = n.parent; p; p = p.parent) { p.expanded = true; p.fcol = false; }
+  relayout();
+  select(n);
+  focusOn(n.world);
+}
+function monPanel() {
+  const el = $('monp');
+  el.replaceChildren();
+  const add = (tag, text, cls) => { const e = document.createElement(tag); e.textContent = text; if (cls) e.className = cls; el.append(e); return e; };
+  const head = add('div', '', 'row');
+  const b = document.createElement('b'); b.textContent = 'Monitor (läuft dauerhaft)'; head.append(b);
+  const x = document.createElement('button'); x.type = 'button'; x.textContent = '×'; x.setAttribute('aria-label', 'Schließen');
+  x.addEventListener('click', () => { $('monp').hidden = true; });
+  const sp = document.createElement('span'); sp.className = 'spacer';
+  head.append(sp, x);
+  add('p', `Kohärenz ${MON.coh.toFixed(1)} % · über ${COH_HI} % = WcT-Kollaps · unter ${COH_LO} % = Divergenz-Kavität · dazwischen neutral (Hysterese ${COH_HYST} Punkte).`, 'hint');
+  add('p', 'Formel: 100 % × (1 − Widersprüche ÷ relevante Punkte). Relevant: Knoten mit Dev-Stand oder Status Risiko, dazu alle Verknüpfungen.', 'hint');
+  const row = (n, text) => {
+    const r = document.createElement('button');
+    r.type = 'button';
+    r.className = 'mrow';
+    r.textContent = text;
+    if (n) r.addEventListener('click', () => monGo(n));
+    el.append(r);
+  };
+  const grid = document.createElement('div');
+  grid.className = 'mgrid';
+  const cell = (k, v, cls) => { const d = document.createElement('div'); const a = document.createElement('span'); a.textContent = k; const b = document.createElement('b'); b.textContent = v; if (cls) b.className = cls; d.append(a, b); grid.append(d); };
+  cell('Status', 'MONITORING', 'ok');
+  cell('Letzte Kohärenz', `${MON.coh.toFixed(1)} %`);
+  cell('Seat Redirects', String(state.audit.length), 'warn');
+  cell('Abbadon Vetos', String(state.audit.filter((e) => e.type === 'execute').length), 'bad');
+  el.append(grid);
+  const pending = state.audit.filter((e) => e.status === 'PENDING');
+  add('div', `Seat Governance · offene Anfragen (${pending.length})`, 'k');
+  if (!pending.length) add('p', 'Keine offenen Anfragen.', 'hint');
+  const card = (e) => {
+    const c = document.createElement('div');
+    c.className = 'acard';
+    const h = document.createElement('div'); h.className = 'row';
+    const id = document.createElement('b'); id.textContent = e.id;
+    const sp = document.createElement('span'); sp.className = 'spacer';
+    const tm = document.createElement('small'); tm.textContent = new Date(e.t).toLocaleTimeString('de-DE');
+    h.append(id, sp, tm); c.append(h);
+    const p = document.createElement('div'); p.className = 'hint';
+    p.textContent = `Quelle: ${e.source} · Auslöser: ${e.reason} · Fähigkeit: ${e.capability}${e.sample ? ' · „' + e.sample + '“' : ''}`;
+    c.append(p);
+    if (e.status === 'PENDING') {
+      const r = document.createElement('div'); r.className = 'row';
+      const ok = document.createElement('button'); ok.type = 'button'; ok.textContent = 'Freigeben (nur Vermerk)';
+      ok.addEventListener('click', () => auditResolve(e, 'approve'));
+      const no = document.createElement('button'); no.type = 'button'; no.textContent = 'Ablehnen';
+      no.addEventListener('click', () => auditResolve(e, 'deny'));
+      r.append(ok, no); c.append(r);
+    } else { const s2 = document.createElement('div'); s2.className = e.status === 'APPROVED' ? 'ok' : 'bad'; s2.textContent = `operator-approval: ${e.status}`; c.append(s2); }
+    return c;
+  };
+  for (const e of pending.slice().reverse().slice(0, 15)) el.append(card(e));
+  const done = state.audit.filter((e) => e.status !== 'PENDING').slice(-5).reverse();
+  if (done.length) { add('div', 'Zuletzt entschieden', 'k'); for (const e of done) el.append(card(e)); }
+  add('div', `Widersprüche (${MON.contra.length})`, 'k');
+  if (!MON.contra.length) add('p', 'Keine.', 'hint');
+  for (const [n, why] of MON.contra.slice(0, 40)) row(n, `${n ? n.d.n : '–'}  ·  ${why}`);
+  const hits = monUniqueIntent();
+  add('div', `Execution Intent in Knoten (${hits.length})`, 'k');
+  if (!hits.length) add('p', 'Keine Treffer.', 'hint');
+  for (const { n, hits: h, key } of hits.slice(0, 40)) {
+    const wrap = document.createElement('div');
+    wrap.className = 'irow';
+    const go = document.createElement('button');
+    go.type = 'button'; go.className = 'mrow'; go.textContent = `${n.d.n}  ·  ${h.join(', ')}`;
+    go.addEventListener('click', () => monGo(n));
+    const ok = document.createElement('button');
+    ok.type = 'button'; ok.textContent = 'bekannt'; ok.title = 'Als bekannt bestätigen: zählt nicht mehr als Hinweis';
+    ok.addEventListener('click', () => { state.intentOk.add(key); markDirty(); monRender(); monPanel(); });
+    wrap.append(go, ok);
+    el.append(wrap);
+  }
+  if (state.intentOk.size) {
+    const back = document.createElement('button');
+    back.type = 'button'; back.className = 'mrow';
+    back.textContent = `${state.intentOk.size} als bekannt bestätigt · alle wieder zählen`;
+    back.addEventListener('click', () => { state.intentOk.clear(); markDirty(); monRender(); monPanel(); });
+    el.append(back);
+  }
+  add('div', `Execution Intent im Eingang (${MON.ingress.length})`, 'k');
+  if (!MON.ingress.length) add('p', 'Keine Treffer beim Tippen oder Einfügen.', 'hint');
+  for (const g of MON.ingress) row(null, `${g.t.toLocaleTimeString('de-DE')}  ${g.src}: ${g.hits.join(', ')}  ·  ${g.sample}`);
+  add('div', 'TAIL_CALL.LOG', 'k');
+  const lg = document.createElement('div'); lg.className = 'mlog';
+  if (!MON.log.length) lg.textContent = 'Noch keine Ereignisse.';
+  for (const l of MON.log.slice(0, 30)) { const d = document.createElement('div'); if (l.cls) d.className = l.cls; d.textContent = `[${l.t.toLocaleTimeString('de-DE')}] ${l.msg}`; lg.append(d); }
+  el.append(lg);
+  add('p', 'Nur Anzeige und Vormerkung. Der Monitor führt nichts aus, auch nicht bei „Freigeben“.', 'hint');
+}
+$('monBar').addEventListener('click', () => { const h = $('monp').hidden; $('monp').hidden = !h; if (h) monPanel(); });
+
+// Dauerlauf: alle 250 ms ein Stück der Intent-Prüfung, jede Sekunde die Kohärenz. Unabhängig von Eingaben.
+setInterval(() => {
+  monScanChunk();
+  if (++MON.tick % 4 === 0) { monCoherence(); }
+  monRender();
+}, 250);
+
 /* ---------- Zustand speichern / laden ---------- */
 function snapshot(nested = false) {
   const expanded = [], offs = {};
@@ -1983,7 +2262,7 @@ function snapshot(nested = false) {
     v: 1, savedAt: new Date().toISOString(),
     scale: S, layout: LAYOUT, sectors: sectorPref.on, stufe: state.stufe, home: state.home,
     filter: { q: state.filter.q, st: [...state.filter.st], dev: [...state.filter.dev], linked: state.filter.linked, axes: state.filter.axes },
-    dev: state.dev, editor: state.editor, obsidian: state.obsidian, links: state.links.map(({ a, b, label }) => ({ a, b, label })),
+    dev: state.dev, editor: state.editor, obsidian: state.obsidian, intentOk: [...state.intentOk], audit: state.audit, links: state.links.map(({ a, b, label }) => ({ a, b, label })),
     lock: state.lock, depth: state.depth, labelDepth: state.labelDepth,
     expanded, offs, attach: state.attachLog, captured: [...state.captured],
     ...(nested ? {} : { milestones: state.milestones.filter((m) => !m.seed) }),

@@ -43,7 +43,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #panel .path{font:11.5px ui-monospace,monospace;color:var(--muted);word-break:break-all}
 #panel a{color:var(--accent)}
 #stat{position:absolute;left:12px;top:8px;color:var(--muted);font:12px ui-monospace,monospace;pointer-events:none;background:color-mix(in srgb,var(--bg) 70%,transparent);padding:2px 8px;border-radius:6px;white-space:nowrap}
-#hud{position:absolute;left:12px;bottom:10px;color:var(--muted);font-size:12px;pointer-events:none;max-width:60%}
+#hud{position:absolute;left:12px;bottom:46px;color:var(--muted);font-size:12px;pointer-events:none;max-width:60%}
 #hud b{color:var(--ink);font-weight:500}
 #toast{position:absolute;left:50%;top:12px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:7px 12px;border-radius:7px;opacity:0;transition:opacity .25s;pointer-events:none}
 #toast.on{opacity:1}
@@ -144,6 +144,31 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #ob .hint{margin:0;color:var(--muted);font-size:12px}
 #ob code{font-family:ui-monospace,monospace;font-size:11.5px}
 @media (max-width:760px){#ob{width:auto;right:10px;max-height:46%}}
+#mon{position:absolute;left:50%;bottom:8px;transform:translateX(-50%);z-index:4;max-width:calc(100% - 24px)}
+#monBar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center;padding:5px 10px;background:color-mix(in srgb,var(--surface) 90%,transparent)}
+#monBar .mp{font:500 12px ui-monospace,monospace;color:var(--muted);padding:2px 8px;border:1px solid var(--line);border-radius:99px;white-space:nowrap}
+#monBar .mp.on[data-m=kollaps]{color:#0F1512;background:#4DB57C;border-color:#4DB57C}
+#monBar .mp.on[data-m=kavitaet]{color:#0F1512;background:#D9A63B;border-color:#D9A63B}
+#monBar .mv{font:600 13px ui-monospace,monospace;font-variant-numeric:tabular-nums;min-width:3.4em;text-align:center}
+#monBar .mi{color:#4DB57C;border-color:#4DB57C}
+#monBar .mi.alert{color:#0F1512;background:#E4674F;border-color:#E4674F}
+#monp{position:absolute;left:50%;bottom:52px;transform:translateX(-50%);z-index:4;width:min(560px,calc(100% - 24px));max-height:52%;overflow:auto;background:color-mix(in srgb,var(--surface) 96%,transparent);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+#monp[hidden]{display:none}
+#monp .row{display:flex;gap:6px;align-items:center}
+#monp .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-top:4px}
+#monp .hint{margin:0;color:var(--muted);font-size:12px}
+#monp .mrow{text-align:left;border:0;background:none;padding:3px 4px;font-size:12px;word-break:break-word}
+#monp .mrow:hover{background:var(--bg)}
+#monp .mgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+#monp .mgrid div{border:1px solid var(--line);border-radius:6px;padding:4px 8px;display:grid}
+#monp .mgrid span{color:var(--muted);font-size:11px}
+#monp .ok{color:#4DB57C}#monp .warn{color:#D9A63B}#monp .bad{color:#E4674F}
+#monp .acard{border:1px solid var(--line);border-left:3px solid #d946ef;border-radius:6px;padding:6px 8px;display:grid;gap:4px}
+#monp .acard .row button{padding:3px 8px;font-size:12px}
+#monp .mlog{font:11px/1.5 ui-monospace,monospace;max-height:150px;overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px}
+#monp .irow{display:flex;gap:6px;align-items:center}
+#monp .irow .mrow{flex:1}
+#monp .irow button:not(.mrow){padding:2px 8px;font-size:11px}
 @media (max-width:760px){#panel{width:auto;left:10px;top:auto;bottom:10px;max-height:45%}#hud{display:none}}
 </style>
 </head>
@@ -194,6 +219,13 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
   <div id="stage">
     <canvas id="c"></canvas>
     <div id="lensRing"></div>
+    <div id="monp" hidden></div>
+    <div id="mon"><button type="button" id="monBar" data-mode="kollaps" title="Dauerhaft laufende Prüfung. Klicken für Details">
+      <span class="mp" data-m="kollaps">[+] WcT-Kollaps &gt; 85 %</span>
+      <span class="mp" data-m="kavitaet">[~] Divergenz-Kavität &lt; 70 %</span>
+      <span id="monVal" class="mv">–</span>
+      <span id="monIntent" class="mp mi">[!] CreoAnalyze · ruhig</span>
+    </button></div>
     <div id="tip"></div>
     <div id="stat"></div>
     <div id="hud"><b>Maus:</b> links ziehen = drehen · rechts ziehen = verschieben · Rad = Zoom · <b>Knoten:</b> ziehen = Ast bewegen · Klick = auf-/zuklappen · Doppelklick = fokussieren · Taste O = Objektiv · Tasten 1–4 = Ebenen-Stufe · X/Y/Z = Achse sperren · <b>Verknüpfen:</b> Taste L oder Shift halten, dann von Knoten zu Knoten ziehen</div>
