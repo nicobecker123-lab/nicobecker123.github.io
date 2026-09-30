@@ -2,9 +2,12 @@ import * as THREE from 'three';
 import { OrbitControls } from './vendor/OrbitControls.js';
 
 /* ---------- Konfiguration ---------- */
-const L = 100;            // Kantenlänge der Sandkasten-Box
-const GAP = 15;           // Abstand zwischen zwei Ebenen entlang der Achse
-const T0 = 8;             // Position der Wurzel auf der Achse
+const S = 3;              // Gesamtmaßstab der Szene (Layout, Box, Beschriftung)
+const L = 100 * S;        // Kantenlänge der Sandkasten-Box
+const GAP = 15 * S;       // Abstand zwischen zwei Ebenen entlang der Achse
+const T0 = 8 * S;         // Position der Wurzel auf der Achse
+const NODE = 1.6;         // Knotengröße relativ zum Layout (kleiner als S = mehr Zwischenraum)
+const LINK_COLOR = 0xF2C14E;
 const GOLDEN = 2.399963;
 const STORE_KEY = 'systemos-3d-sandbox-v1';
 
@@ -33,13 +36,13 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0F1512);
-const camera = new THREE.PerspectiveCamera(50, 1, 0.5, 2000);
+const camera = new THREE.PerspectiveCamera(50, 1, 1, 8000);
 const DEFAULT_CAM = { p: [L * 1.55, L * 1.1, L * 1.75], t: [L / 2, L / 2, L / 2] };
 camera.position.fromArray(DEFAULT_CAM.p);
 
 scene.add(new THREE.HemisphereLight(0xffffff, 0x334039, 1.6));
 const sun = new THREE.DirectionalLight(0xffffff, 1.4);
-sun.position.set(60, 120, 80);
+sun.position.set(60 * S, 120 * S, 80 * S);
 scene.add(sun);
 
 /* Pointer-Handler VOR den OrbitControls registrieren, damit ein Treffer auf einen
@@ -56,8 +59,8 @@ const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.zoomSpeed = 1.2;
-controls.minDistance = 4;
-controls.maxDistance = 900;
+controls.minDistance = 10;
+controls.maxDistance = 2800;
 controls.target.fromArray(DEFAULT_CAM.t);
 
 /* ---------- Sandkasten-Box, Achsen, Raster ---------- */
@@ -109,15 +112,19 @@ function disposeSprite(sp) {
 
   for (const ax of AXES) {
     const dir = new THREE.Vector3().setComponent(ax.dim, 1);
-    const arrow = new THREE.ArrowHelper(dir, new THREE.Vector3(), L + 10, ax.color, 5, 2.4);
+    const arrow = new THREE.ArrowHelper(dir, new THREE.Vector3(), L + 10 * S, ax.color, 5 * S, 2.4 * S);
+    arrow.line.material.transparent = true;
+    arrow.line.material.opacity = 0.45;
+    arrow.cone.material.transparent = true;
+    arrow.cone.material.opacity = 0.55;
     scene.add(arrow);
-    const tag = textSprite(ax.key.toUpperCase() + '-Achse', { size: 4, color: '#' + ax.color.toString(16).padStart(6, '0') });
-    tag.position.copy(dir).multiplyScalar(L + 12);
+    const tag = textSprite(ax.key.toUpperCase() + '-Achse', { size: 4 * S, color: '#' + ax.color.toString(16).padStart(6, '0') });
+    tag.position.copy(dir).multiplyScalar(L + 12 * S);
     scene.add(tag);
     for (let d = 0; d <= 6; d++) {
-      const t = textSprite('E' + d, { size: 2, color: '#9AA69F', weight: 500 });
+      const t = textSprite('E' + d, { size: 2 * S, color: '#9AA69F', weight: 500 });
       t.position.copy(dir).multiplyScalar(T0 + d * GAP);
-      t.position.setComponent(ax.perp[0], -3);
+      t.position.setComponent(ax.perp[0], -3 * S);
       scene.add(t);
     }
   }
@@ -142,13 +149,15 @@ const state = {
   attachLog: [],      // [{axis, parentId, tree}] - angehängte Scans, für Speichern
   stamp: 0,
   captured: new Set(),  // im Lexikon erfasste Dokumente (Schlüssel)
+  home: null,           // vom Nutzer fixierte Startansicht {p, t}
+  links: [],            // freie Verknüpfungen [{id, a, b, label}] zwischen Knoten-IDs
+  linkMode: false,
 };
+let linkSeq = 0;
 
 function nodeSize(n) {
-  if (n.depth === 0) return 1.7;
-  if (n.depth === 1) return 1.25;
-  if (n.depth === 2) return 1.0;
-  return n.d.s === 'datei' ? 0.42 : 0.7;
+  const base = n.depth === 0 ? 1.7 : n.depth === 1 ? 1.25 : n.depth === 2 ? 1.0 : n.d.s === 'datei' ? 0.42 : 0.7;
+  return base * NODE;
 }
 
 function build(d, parent, index, axis) {
@@ -164,7 +173,7 @@ function build(d, parent, index, axis) {
   return n;
 }
 
-function spread(depth) { return Math.max(0.9, 3.6 * Math.pow(0.72, depth)); }
+function spread(depth) { return S * Math.max(0.9, 3.6 * Math.pow(0.72, depth)); }
 
 function layoutAxis(axis) {
   const [p, q] = axis.perp;
@@ -223,6 +232,7 @@ function relayout() {
     axis.lines.geometry.computeBoundingSphere();
   }
   pointer.pickables = pick;
+  renderLinks();
   updateRing();
   $('hud').dataset.count = total;
 }
@@ -244,10 +254,10 @@ function wantsLabel(n) {
 function updateLabel(n) {
   if (n.stamp !== state.stamp || !wantsLabel(n)) return disposeLabel(n);
   if (!n.label) {
-    n.label = textSprite(labelText(n), { size: n.depth === 0 ? 2.6 : 1.3, color: n.depth === 0 ? '#FFFFFF' : n === state.selected ? '#FFFFFF' : '#E2E8E3' });
+    n.label = textSprite(labelText(n), { size: (n.depth === 0 ? 2.6 : 1.3) * S * 0.9, color: n.depth === 0 ? '#FFFFFF' : n === state.selected ? '#FFFFFF' : '#E2E8E3' });
     n.axis.group.add(n.label);
   }
-  n.label.position.set(n.world.x, n.world.y + nodeSize(n) + 0.3, n.world.z);
+  n.label.position.set(n.world.x, n.world.y + nodeSize(n) + 0.3 * S, n.world.z);
 }
 function disposeLabel(n) {
   if (!n.label) return;
@@ -285,6 +295,8 @@ async function buildAxes(saved) {
   state.axes = [];
   state.attachLog = [];
   state.captured = new Set();
+  state.links = [];
+  linkSeq = 0;
   state.selected = state.hit = null;
   for (const cfg of AXES) {
     const data = await loadJSON(cfg.source);
@@ -316,16 +328,23 @@ async function buildAxes(saved) {
     setLock(saved.lock || 'free');
     setSlider('depth', saved.depth ?? 2);
     setSlider('labelDepth', saved.labelDepth ?? 1);
-    if (saved.camera) {
-      camera.position.fromArray(saved.camera.p);
-      controls.target.fromArray(saved.camera.t);
+    state.home = saved.scale === S ? saved.home || null : null;
+    if (state.home) {
+      camera.position.fromArray(state.home.p);
+      controls.target.fromArray(state.home.t);
     }
+    const f = S / (saved.scale || 1);
+    for (const l of saved.links || []) {
+      if (nodeById(l.a) && nodeById(l.b)) state.links.push({ id: ++linkSeq, a: l.a, b: l.b, label: l.label || '' });
+    }
+    if (f !== 1) for (const a of state.axes) for (const n of a.all) n.off.multiplyScalar(f);
   } else {
     expandToDepth(state.depth);
   }
   fitSliderMax();
   relayout();
   lexRebuild();
+  renderLinkPanel();
 }
 
 function attachTree(parent, tree) {
@@ -439,6 +458,12 @@ function onPointerDown(ev) {
   canvas.setPointerCapture(ev.pointerId);
   const { plane, axisDir } = makePlane(n);
   const start = raycaster.ray.intersectPlane(plane, new THREE.Vector3());
+  if (state.linkMode || ev.shiftKey) {
+    const facing = new THREE.Plane().setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()), n.world);
+    pointer.down = { link: true, n, sx: ev.clientX, sy: ev.clientY, moved: false, plane: facing };
+    tip.style.display = 'none';
+    return;
+  }
   pointer.down = { n, sx: ev.clientX, sy: ev.clientY, moved: false, plane, axisDir, start, startOff: n.off.clone() };
   tip.style.display = 'none';
 }
@@ -451,6 +476,7 @@ function onPointerMove(ev) {
   }
   if (!d.moved && Math.hypot(ev.clientX - d.sx, ev.clientY - d.sy) < 4) return;
   d.moved = true;
+  if (d.link) return dragWire(d, ev);
   setRay(ev);
   const hit = raycaster.ray.intersectPlane(d.plane, new THREE.Vector3());
   if (!hit || !d.start) return;
@@ -467,6 +493,16 @@ function onPointerUp(ev) {
   pointer.down = null;
   if (!d) return;
   if (canvas.hasPointerCapture(ev.pointerId)) canvas.releasePointerCapture(ev.pointerId);
+  if (d.link) {
+    rubber.visible = false;
+    setHover(null);
+    if (d.moved) {
+      const target = pickNode(ev);
+      if (target && target !== d.n) addLink(d.n, target);
+    }
+    select(d.n);
+    return;
+  }
   if (d.moved) { select(d.n); return; }
   toggle(d.n);
   select(d.n);
@@ -490,13 +526,19 @@ let fly = null;
 function flyTo(pos, target, ms = 650) {
   fly = { t0: performance.now(), ms, p0: camera.position.clone(), t0v: controls.target.clone(), p1: pos, t1: target };
 }
-function focusOn(point, dist = 32) {
+function focusOn(point, dist = 70) {
   const dir = camera.position.clone().sub(controls.target).normalize();
   flyTo(point.clone().addScaledVector(dir, dist), point.clone());
 }
 function resetView() {
-  flyTo(new THREE.Vector3().fromArray(DEFAULT_CAM.p), new THREE.Vector3().fromArray(DEFAULT_CAM.t));
+  const h = state.home || DEFAULT_CAM;
+  flyTo(new THREE.Vector3().fromArray(h.p), new THREE.Vector3().fromArray(h.t));
 }
+$('setHome').addEventListener('click', () => {
+  state.home = { p: camera.position.toArray().map((v) => +v.toFixed(2)), t: controls.target.toArray().map((v) => +v.toFixed(2)) };
+  markDirty();
+  toast('Startansicht fixiert. Mit „Zustand speichern“ bleibt sie beim nächsten Öffnen erhalten.');
+});
 
 /* ---------- Bedienelemente ---------- */
 function setLock(v) {
@@ -591,11 +633,141 @@ function attachAndShow(parent, tree) {
   relayout();
   lexRebuild();
   select(parent);
-  focusOn(k.world, 45);
+  focusOn(k.world, 120);
   markDirty();
   toast(`„${tree.n}“ an ${parent.d.n} angehängt`);
 }
 
+
+
+/* ---------- Verknüpfungen (Node-Editor) ---------- */
+const nodeById = (id) => state.axes.map((a) => a.byId.get(id)).find(Boolean);
+const linkGroup = new THREE.Group();
+scene.add(linkGroup);
+const linkMat = new THREE.MeshBasicMaterial({ color: LINK_COLOR, transparent: true, opacity: 0.9 });
+const coneGeo = new THREE.ConeGeometry(1, 2.6, 12);
+const rubber = new THREE.Line(
+  new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+  new THREE.LineBasicMaterial({ color: LINK_COLOR, depthTest: false })
+);
+rubber.frustumCulled = false;
+rubber.renderOrder = 8;
+rubber.visible = false;
+scene.add(rubber);
+
+// Zugeklappte Knoten: die Verknüpfung endet am nächsten sichtbaren Vorfahren.
+function visibleAnchor(n) {
+  let x = n;
+  while (x && x.stamp !== state.stamp) x = x.parent;
+  return x;
+}
+function linkCurve(a, b) {
+  const p0 = a.world, p1 = b.world;
+  const ctrl = p0.clone().add(p1).multiplyScalar(0.5);
+  ctrl.y += p0.distanceTo(p1) * 0.18;
+  return new THREE.QuadraticBezierCurve3(p0.clone(), ctrl, p1.clone());
+}
+
+function renderLinks() {
+  for (const c of [...linkGroup.children]) {
+    linkGroup.remove(c);
+    if (c.isSprite) disposeSprite(c);
+    else if (c.geometry !== coneGeo) c.geometry.dispose();
+  }
+  for (const l of state.links) {
+    const a = visibleAnchor(nodeById(l.a)), b = visibleAnchor(nodeById(l.b));
+    if (!a || !b || a === b) continue;
+    const curve = linkCurve(a, b);
+    linkGroup.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 28, 0.32 * S, 6, false), linkMat));
+    const cone = new THREE.Mesh(coneGeo, linkMat);
+    cone.position.copy(curve.getPoint(0.88));
+    cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), curve.getTangent(0.88));
+    cone.scale.setScalar(0.85 * S);
+    linkGroup.add(cone);
+    if (l.label) {
+      const t = textSprite(l.label, { size: 0.9 * S, color: '#F2C14E' });
+      t.position.copy(curve.getPoint(0.5));
+      linkGroup.add(t);
+    }
+  }
+}
+
+function dragWire(d, ev) {
+  setRay(ev);
+  const target = pickNode(ev);
+  const end = target && target !== d.n ? target.world : raycaster.ray.intersectPlane(d.plane, new THREE.Vector3());
+  setHover(target && target !== d.n ? target : null, ev);
+  if (!end) return;
+  rubber.geometry.setFromPoints([d.n.world, end]);
+  rubber.visible = true;
+}
+
+function addLink(a, b) {
+  if (state.links.some((l) => l.a === a.id && l.b === b.id)) return toast('Diese Verknüpfung gibt es schon');
+  state.links.push({ id: ++linkSeq, a: a.id, b: b.id, label: '' });
+  renderLinks();
+  renderLinkPanel();
+  markDirty();
+  toast(`Verknüpft: ${a.d.n} → ${b.d.n}`);
+}
+
+function setLinkMode(on) {
+  state.linkMode = on;
+  $('linkMode').setAttribute('aria-pressed', String(on));
+  canvas.style.outline = on ? '2px solid #F2C14E' : '';
+  canvas.style.outlineOffset = '-2px';
+  if (on) toast('Verknüpfen: von einem Knoten auf den Zielknoten ziehen');
+}
+$('linkMode').addEventListener('click', () => setLinkMode(!state.linkMode));
+$('linksToggle').addEventListener('click', () => { const h = $('links').hidden; $('links').hidden = !h; if (h) renderLinkPanel(); });
+$('linksClose').addEventListener('click', () => { $('links').hidden = true; });
+
+function renderLinkPanel() {
+  $('linksCount').textContent = `${state.links.length}`;
+  if ($('links').hidden) return;
+  const box = $('linksList');
+  box.replaceChildren();
+  if (!state.links.length) {
+    const p = document.createElement('p');
+    p.className = 'hint';
+    p.textContent = 'Noch keine Verknüpfung. „Verknüpfen“ einschalten (oder Shift halten) und von Knoten zu Knoten ziehen.';
+    box.append(p);
+    return;
+  }
+  const name = (id) => nodeById(id)?.d.n ?? '(fehlt)';
+  for (const l of state.links) {
+    const row = document.createElement('div');
+    row.className = 'lnk';
+    const go = document.createElement('button');
+    go.type = 'button';
+    go.className = 'go';
+    go.textContent = `${name(l.a)} → ${name(l.b)}`;
+    go.title = 'Zur Verknüpfung fliegen';
+    go.addEventListener('click', () => {
+      const a = visibleAnchor(nodeById(l.a)), b = visibleAnchor(nodeById(l.b));
+      if (!a || !b) return toast('Ein Endpunkt ist zugeklappt oder fehlt');
+      const mid = a.world.clone().add(b.world).multiplyScalar(0.5);
+      focusOn(mid, Math.max(80, a.world.distanceTo(b.world) * 1.1));
+    });
+    const label = document.createElement('input');
+    label.type = 'text';
+    label.placeholder = 'Beschriftung';
+    label.value = l.label;
+    label.addEventListener('change', () => { l.label = label.value.trim().slice(0, 40); renderLinks(); markDirty(); });
+    const swap = document.createElement('button');
+    swap.type = 'button';
+    swap.textContent = '⇄';
+    swap.title = 'Richtung umkehren';
+    swap.addEventListener('click', () => { [l.a, l.b] = [l.b, l.a]; renderLinks(); renderLinkPanel(); markDirty(); });
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.textContent = '×';
+    del.title = 'Verknüpfung löschen';
+    del.addEventListener('click', () => { state.links = state.links.filter((x) => x !== l); renderLinks(); renderLinkPanel(); markDirty(); });
+    row.append(go, label, swap, del);
+    box.append(row);
+  }
+}
 
 /* ---------- Lexikon: alle Dokumente Schritt für Schritt erfassen ---------- */
 const lex = { entries: [], view: [], cur: null, shown: 300 };
@@ -679,7 +851,7 @@ function lexGo(e) {
   for (let p = n.parent; p; p = p.parent) p.expanded = true;
   relayout();
   select(n);
-  focusOn(n.world, 22);
+  focusOn(n.world, 45);
   lexRender();
 }
 
@@ -727,7 +899,7 @@ function snapshot() {
   }
   return {
     v: 1, savedAt: new Date().toISOString(),
-    camera: { p: camera.position.toArray().map((v) => +v.toFixed(2)), t: controls.target.toArray().map((v) => +v.toFixed(2)) },
+    scale: S, home: state.home, links: state.links.map(({ a, b, label }) => ({ a, b, label })),
     lock: state.lock, depth: state.depth, labelDepth: state.labelDepth,
     expanded, offs, attach: state.attachLog, captured: [...state.captured],
   };
@@ -767,7 +939,8 @@ addEventListener('keydown', (e) => {
   const map = { 1: 'free', 2: 'x', 3: 'y', 4: 'z' };
   if (map[e.key]) { setLock(map[e.key]); markDirty(); }
   else if (e.key === 'f' && state.selected) focusOn(state.selected.world);
-  else if (e.key === 'Escape') select(null);
+  else if (e.key.toLowerCase() === 'l') setLinkMode(!state.linkMode);
+  else if (e.key === 'Escape') { setLinkMode(false); select(null); }
 });
 
 let toastTimer;

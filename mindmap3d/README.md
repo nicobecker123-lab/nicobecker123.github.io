@@ -10,6 +10,14 @@ Start: Repo über GitHub Pages ausliefern und `/mindmap3d/` öffnen, lokal z. B.
 - **Ebene:** klappt alle Knoten bis zur gewählten Tiefe auf. **Labels:** bis zu welcher Tiefe Beschriftungen stehen.
 - **Suche:** Name oder Pfad, „Weiter“ springt zum nächsten Treffer und klappt den Weg dorthin auf.
 
+## Verknüpfungen (Node-Editor)
+- **Verknüpfen** (Taste L, oder beim Ziehen Shift halten): von einem Knoten auf einen Zielknoten ziehen, es entsteht eine gerichtete Verbindung, auch über Äste und Achsen hinweg.
+- **Verknüpfungen** öffnet die Liste: Beschriftung setzen, Richtung umkehren (⇄), löschen (×), zur Verbindung fliegen.
+- Ist ein Endpunkt zugeklappt, endet die Linie am nächsten sichtbaren Vorfahren. Die Verknüpfungen werden mit dem Zustand gespeichert.
+
+## Startansicht
+**Startansicht setzen** fixiert die aktuelle Kameraposition. Nach „Zustand speichern“ startet die App immer dort, der Button **Ansicht** fliegt dorthin zurück.
+
 ## Lexikon
 Button **Lexikon**: listet jedes Dokument (Datei-Knoten) aller Achsen, nach Ordner gegliedert, ohne Doppelte (gleicher Pfad = ein Eintrag).
 - **Erfassen & weiter** hakt das aktuelle Dokument ab, springt zum nächsten offenen und fliegt dort hin. **Weiter** überspringt, **Zurück** geht zurück.
@@ -19,7 +27,7 @@ Button **Lexikon**: listet jedes Dokument (Datei-Knoten) aller Achsen, nach Ordn
 ## Zustand speichern
 - **Zustand speichern** (Strg+S): Browser-Speicher (`localStorage`), wird beim nächsten Öffnen wiederhergestellt.
 - **Export / Import:** dieselbe Momentaufnahme als JSON-Datei für den nächsten Schritt oder ein anderes Gerät.
-- Gespeichert werden Kamera, aufgeklappte Knoten, verschobene Äste, angehängte Scans, Lexikon-Stand und Einstellungen.
+- Gespeichert werden Startansicht, Verknüpfungen, aufgeklappte Knoten, verschobene Äste, angehängte Scans, Lexikon-Stand und Einstellungen.
 
 ## Daten
 - `data/systemos.json` ist die „SystemOS Zustandskarte“ (Claude-Artifact). In `app.js` (`AXES`) hat jede Achse ein eigenes

@@ -31,7 +31,7 @@ input[type=search]{width:170px}
 .spacer{flex:1}
 #stage{position:relative;min-height:0}
 canvas{display:block;width:100%;height:100%;touch-action:none}
-#panel{position:absolute;top:10px;right:10px;width:300px;max-height:calc(100% - 20px);overflow:auto;background:color-mix(in srgb,var(--surface) 92%,transparent);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:none}
+#panel{position:absolute;top:10px;right:10px;width:300px;max-height:calc(58% - 20px);overflow:auto;background:color-mix(in srgb,var(--surface) 92%,transparent);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:none}
 #panel h2{margin:0 0 6px;font-size:15px;word-break:break-word}
 #panel .pill{display:inline-block;font:500 11px/1 ui-monospace,monospace;text-transform:uppercase;padding:4px 7px;border-radius:99px;border:1px solid var(--c);color:var(--c);margin-bottom:8px}
 #panel p{margin:6px 0}
@@ -58,6 +58,17 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #lexList .doc.done button{color:var(--muted);text-decoration:line-through}
 #lexList .doc small{color:var(--muted);white-space:nowrap}
 @media (max-width:760px){#lex{width:auto;right:10px;max-height:42%}}
+#links{position:absolute;right:10px;bottom:10px;width:340px;max-height:38%;display:flex;flex-direction:column;gap:8px;background:color-mix(in srgb,var(--surface) 94%,transparent);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+#links[hidden]{display:none}
+#links .row{display:flex;gap:6px;align-items:center}
+#links .cnt{color:var(--muted)}
+#linksList{overflow:auto;border-top:1px solid var(--line);padding-top:6px}
+#linksList .hint{color:var(--muted);margin:0}
+#linksList .lnk{display:grid;grid-template-columns:1fr auto auto;gap:4px;margin-bottom:8px}
+#linksList .lnk .go{grid-column:1/-1;text-align:left;border:0;background:none;padding:0;color:#F2C14E;word-break:break-word}
+#linksList .lnk input{min-width:0}
+#linkMode[aria-pressed=true]{background:#F2C14E;color:#0F1512;border-color:#F2C14E}
+@media (max-width:760px){#links{width:auto;left:10px;max-height:34%}}
 @media (max-width:760px){#panel{width:auto;left:10px;top:auto;bottom:10px;max-height:45%}#hud{display:none}}
 </style>
 </head>
@@ -78,11 +89,14 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <div class="grp"><input id="q" type="search" placeholder="Knoten suchen …" autocomplete="off"><button type="button" id="qNext">Weiter</button></div>
     <span class="spacer"></span>
     <div class="grp">
+      <button type="button" id="linkMode" aria-pressed="false" title="Taste L: von Knoten zu Knoten ziehen, um sie zu verknüpfen">Verknüpfen</button>
+      <button type="button" id="linksToggle" title="Verknüpfungen bearbeiten">Verknüpfungen</button>
       <button type="button" id="lexToggle" title="Alle Dokumente erfassen, Schritt für Schritt">Lexikon</button>
       <button type="button" id="attach" title="JSON aus tools/scan_folder.py an den gewählten Knoten hängen">Ordner-Scan anhängen</button>
       <button type="button" id="attachRepos" title="Repo-Scan (data/repos-scan.json) an den gewählten Knoten hängen">Repo-Scan laden</button>
       <button type="button" id="resetPos" title="Alle verschobenen Äste zurücksetzen">Positionen zurücksetzen</button>
-      <button type="button" id="fit">Ansicht</button>
+      <button type="button" id="fit" title="Zur Startansicht">Ansicht</button>
+      <button type="button" id="setHome" title="Aktuelle Kameraposition als Startansicht fixieren">Startansicht setzen</button>
       <button type="button" id="export">Export</button>
       <button type="button" id="import">Import</button>
       <button type="button" id="save" class="primary" title="Strg+S">Zustand speichern</button>
@@ -91,13 +105,17 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
   <div id="stage">
     <canvas id="c"></canvas>
     <div id="tip"></div>
-    <div id="hud"><b>Maus:</b> links ziehen = drehen · rechts ziehen = verschieben · Rad = Zoom · <b>Knoten:</b> ziehen = Ast bewegen · Klick = auf-/zuklappen · Doppelklick = fokussieren · Tasten 1–4 = Achse</div>
+    <div id="hud"><b>Maus:</b> links ziehen = drehen · rechts ziehen = verschieben · Rad = Zoom · <b>Knoten:</b> ziehen = Ast bewegen · Klick = auf-/zuklappen · Doppelklick = fokussieren · Tasten 1–4 = Achse · <b>Verknüpfen:</b> Taste L oder Shift halten, dann von Knoten zu Knoten ziehen</div>
     <aside id="lex" hidden>
       <div class="row"><b>Lexikon</b><span id="lexProg"></span><button type="button" id="lexClose" aria-label="Schließen">×</button></div>
       <div class="row"><input id="lexQ" type="search" placeholder="Dokument oder Ordner filtern …" autocomplete="off"><label><input type="checkbox" id="lexOpen"> nur offene</label></div>
       <div class="row"><button type="button" id="lexPrev">‹ Zurück</button><button type="button" id="lexDone" class="primary">Erfassen &amp; weiter</button><button type="button" id="lexSkip">Weiter ›</button></div>
       <div id="lexList"></div>
       <div class="row"><button type="button" id="lexExport">Als Markdown exportieren</button></div>
+    </aside>
+    <aside id="links" hidden>
+      <div class="row"><b>Verknüpfungen</b><span id="linksCount" class="cnt"></span><span class="spacer"></span><button type="button" id="linksClose" aria-label="Schließen">×</button></div>
+      <div id="linksList"></div>
     </aside>
     <aside id="panel" aria-live="polite"></aside>
     <div id="toast"></div>
