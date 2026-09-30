@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<!-- BEISPIEL mit erfundenen Werten, nur zum Ausprobieren des Imports. Echte Dateien erzeugt tools/Scan-OwnNetwork.ps1 (nmap -oX). -->
+<nmaprun scanner="nmap" args="nmap -sV -oX beispiel.xml 127.0.0.1 192.168.0.89" start="1790000000" version="7.95">
+  <host>
+    <status state="up"/>
+    <address addr="127.0.0.1" addrtype="ipv4"/>
+    <hostnames><hostname name="localhost" type="PTR"/></hostnames>
+    <ports>
+      <port protocol="tcp" portid="8080"><state state="open"/><service name="http" product="llama.cpp server"/></port>
+      <port protocol="tcp" portid="8081"><state state="open"/><service name="http" product="uvicorn"/></port>
+      <port protocol="tcp" portid="8787"><state state="open"/><service name="http" product="uvicorn"/></port>
+      <port protocol="tcp" portid="11434"><state state="open"/><service name="http" product="Ollama"/></port>
+      <port protocol="tcp" portid="22"><state state="open"/><service name="ssh" product="OpenSSH" version="for_Windows_9.5"/></port>
+    </ports>
+  </host>
+  <host>
+    <status state="up"/>
+    <address addr="192.168.0.89" addrtype="ipv4"/>
+    <hostnames><hostname name="pc-eschweiler" type="user"/></hostnames>
+    <ports>
+      <port protocol="tcp" portid="22"><state state="open"/><service name="ssh" product="OpenSSH" version="for_Windows_9.5"/></port>
+      <port protocol="tcp" portid="135"><state state="open"/><service name="msrpc" product="Microsoft Windows RPC"/></port>
+      <port protocol="tcp" portid="445"><state state="open"/><service name="microsoft-ds"/></port>
+      <port protocol="tcp" portid="3389"><state state="filtered"/><service name="ms-wbt-server"/></port>
+      <port protocol="tcp" portid="5040"><state state="open"/><service name="unknown"/></port>
+    </ports>
+    <os><osmatch name="Microsoft Windows 10 (Beispiel)" accuracy="95"/></os>
+  </host>
+</nmaprun>

@@ -33,7 +33,8 @@ const STATUS_TEXT = {
 /* ---------- Szene ---------- */
 const $ = (id) => document.getElementById(id);
 const canvas = $('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.xr.enabled = true;
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0F1512);
@@ -175,7 +176,7 @@ for (const ax of AXES) {
 /* ---------- Knoten & Layout ---------- */
 const sphereGeo = new THREE.SphereGeometry(1, 14, 10);
 const matCache = {};
-const matFor = (s) => matCache[s] ||= new THREE.MeshLambertMaterial({ color: STATUS[s] || STATUS.info });
+const matFor = (s) => matCache[s] ||= new THREE.MeshLambertMaterial({ color: STATUS[s] || STATUS.info, transparent: state.alpha < 1, opacity: state.alpha, depthWrite: state.alpha >= 1 });
 const ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.07, 8, 40), new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false }));
 ring.renderOrder = 9;
 ring.visible = false;
@@ -204,6 +205,9 @@ const state = {
   filter: { q: '', st: new Set(), dev: new Set(), linked: false, axes: { x: true, y: true, z: true } },
   lens: { on: false, r: 170, x: 0, y: 0, set: new Set() },
   jit: { on: false, reach: 260, gen: 0, drop: 0, pinned: new Set() },   // JIT-Sicht: Knoten entstehen nach Blick
+  alpha: 1,             // Durchsicht der Knoten (1 = deckend)
+  declutter: true,      // Labels ohne Überdeckung
+  overlap: 0,           // Anteil überdeckter Knoten im Bild
   born: [],             // gerade erzeugte Knoten (Einwachs-Animation)   // Objektiv: folgt dem Zeiger
   milestones: [],       // markierte Zwischenstände {id, name, note, at, metrics, extra?, snap?, seed?}
 };
@@ -441,8 +445,9 @@ function updateStat() {
   const parts = state.axes.map((a) => `${a.key.toUpperCase()} ${volumeK(a).toFixed(0)} k`);
   const tot = state.axes.reduce((t, a) => t + a.visible.length, 0);
   const vol = state.axes.reduce((t, a) => t + volumeK(a), 0);
+  const ov = state.overlap > 0.05 ? ` · Überdeckung ${(state.overlap * 100).toFixed(0)} %${state.overlap > 0.35 ? ' (viel: Ebenen-Stufe erhöhen, Filter oder JIT nutzen)' : ''}` : '';
   const jit = state.jit.on ? ` · JIT an: ${state.jit.gen} erzeugt, ${state.jit.drop} verworfen` : '';
-  $('stat').textContent = `Volumen ${parts.join(' · ')} · ${tot} Knoten · ${(tot / Math.max(vol, 1)).toFixed(1)} Knoten/k · Raster ${state.gridG} · Box ${state.boxL}${jit}`;
+  $('stat').textContent = `Volumen ${parts.join(' · ')} · ${tot} Knoten · ${(tot / Math.max(vol, 1)).toFixed(1)} Knoten/k · Raster ${state.gridG} · Box ${state.boxL}${ov}${jit}`;
 }
 
 function relayout() {
@@ -618,6 +623,9 @@ async function buildAxes(saved) {
       if (nodeById(l.a) && nodeById(l.b)) state.links.push({ id: ++linkSeq, a: l.a, b: l.b, label: l.label || '' });
     }
     if (f !== 1 && saved.layout === LAYOUT) for (const a of state.axes) for (const n of a.all) n.off.multiplyScalar(f);
+    setAlpha(saved.alpha ?? 1, true);
+    state.declutter = saved.declutter !== false;
+    $('declutterToggle').setAttribute('aria-pressed', String(state.declutter));
     sectorPref.on = saved.sectors !== false;
     boxGroup.getObjectByName('sectors').visible = sectorPref.on;
     $('sectorToggle').setAttribute('aria-pressed', String(sectorPref.on));
@@ -929,6 +937,7 @@ $('attachRepos').addEventListener('click', async () => {
 fileInput.addEventListener('change', async () => {
   const f = fileInput.files[0];
   if (!f) return;
+  if (fileMode === 'nmap') { netAttach(await f.text()); return; }
   let json;
   try { json = JSON.parse(await f.text()); } catch { return toast('Keine gültige JSON-Datei'); }
   if (fileMode === 'attach') {
@@ -1094,6 +1103,173 @@ document.querySelectorAll('#lensPresets button').forEach((b) => b.addEventListen
   fltApply();
 }));
 
+
+/* ---------- Überdeckung, Transparenz, Label-Entzerrung (Blick auf AR/VR) ----------
+   Im Raum überdecken sich Knoten und Beschriftungen je nach Blickwinkel. Drei Hilfen:
+   1) Überdeckung messen: Anteil der Knoten, die im Bild ein anderes berühren.
+   2) Durchsicht: Knoten halbtransparent ohne Tiefenschreiben, damit man hindurch sieht.
+   3) Labels entzerren: Beschriftungen, die einander verdecken oder zu klein sind, werden ausgeblendet. */
+function setAlpha(a, quiet = false) {
+  state.alpha = Math.min(1, Math.max(0.2, a));
+  for (const m of Object.values(matCache)) {
+    m.transparent = state.alpha < 1;
+    m.opacity = state.alpha;
+    m.depthWrite = state.alpha >= 1;
+    m.needsUpdate = true;
+  }
+  $('alphaR').value = Math.round(state.alpha * 100);
+  for (const ax of state.axes) ax.lines.material.opacity = Math.min(0.6, state.alpha);
+  if (!quiet) markDirty();
+}
+$('alphaR').addEventListener('input', (e) => setAlpha(e.target.value / 100));
+
+const fovTan = () => Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+function measureOverlap() {
+  const r = canvas.getBoundingClientRect(), cell = 24, grid = new Map(), pts = [];
+  const v = new THREE.Vector3();
+  for (const a of state.axes) for (const n of a.visible) {
+    v.copy(n.world).project(camera);
+    if (v.z > 1 || Math.abs(v.x) > 1 || Math.abs(v.y) > 1) continue;
+    const d = camera.position.distanceTo(n.world);
+    const rad = (baseScale(n) / (2 * d * fovTan())) * r.height;
+    const p = { x: ((v.x + 1) / 2) * r.width, y: ((1 - v.y) / 2) * r.height, r: Math.max(rad, 1.5), hit: false };
+    pts.push(p);
+    const key = `${Math.floor(p.x / cell)},${Math.floor(p.y / cell)}`;
+    (grid.get(key) || grid.set(key, []).get(key)).push(p);
+  }
+  for (const p of pts) {
+    const cx = Math.floor(p.x / cell), cy = Math.floor(p.y / cell);
+    for (let dx = -1; dx <= 1 && !p.hit; dx++) for (let dy = -1; dy <= 1 && !p.hit; dy++) {
+      for (const q of grid.get(`${cx + dx},${cy + dy}`) || []) {
+        if (q !== p && Math.hypot(q.x - p.x, q.y - p.y) < p.r + q.r) { p.hit = true; break; }
+      }
+    }
+  }
+  state.overlap = pts.length ? pts.filter((p) => p.hit).length / pts.length : 0;
+}
+
+function declutterLabels() {
+  const items = [];
+  for (const a of state.axes) for (const n of a.visible) if (n.label) items.push(n);
+  if (!state.declutter) { for (const n of items) n.label.visible = true; return; }
+  const r = canvas.getBoundingClientRect(), v = new THREE.Vector3(), placed = [];
+  const prio = (n) => (n === state.selected || n === pointer.hover ? -1 : n === state.hit ? 0 : n.depth);
+  items.sort((a, b) => prio(a) - prio(b) || camera.position.distanceTo(a.world) - camera.position.distanceTo(b.world));
+  for (const n of items) {
+    const sp = n.label;
+    v.copy(sp.position).project(camera);
+    if (v.z > 1) { sp.visible = false; continue; }
+    const d = camera.position.distanceTo(sp.position);
+    const pxH = (sp.scale.y / (2 * d * fovTan())) * r.height, pxW = pxH * (sp.scale.x / sp.scale.y);
+    const cx = ((v.x + 1) / 2) * r.width, cy = ((1 - v.y) / 2) * r.height;
+    const box = { x0: cx - pxW / 2, x1: cx + pxW / 2, y0: cy - pxH, y1: cy };
+    const important = prio(n) <= 0;
+    const clash = placed.some((p) => box.x0 < p.x1 && box.x1 > p.x0 && box.y0 < p.y1 && box.y1 > p.y0);
+    sp.visible = important || (pxH >= 7 && !clash);
+    if (sp.visible) placed.push(box);
+  }
+}
+$('declutterToggle').addEventListener('click', () => {
+  state.declutter = !state.declutter;
+  $('declutterToggle').setAttribute('aria-pressed', String(state.declutter));
+  declutterLabels();
+  markDirty();
+});
+setInterval(() => { declutterLabels(); measureOverlap(); updateStat(); }, 400);
+
+/* ---------- AR/VR (WebXR) ----------
+   Erster Schritt: Die Szene wird verkleinert vor dich gestellt (Tischmodell) und lässt sich umschauen.
+   Bedienung mit Controllern/Händen folgt. Die Knöpfe erscheinen nur, wenn das Gerät die Sitzung unterstützt. */
+const XR_SCALE = 0.004;
+async function xrInit() {
+  if (!navigator.xr) return;
+  for (const [mode, id] of [['immersive-vr', 'xrVr'], ['immersive-ar', 'xrAr']]) {
+    if (!(await navigator.xr.isSessionSupported(mode).catch(() => false))) continue;
+    const b = $(id);
+    b.hidden = false;
+    b.addEventListener('click', async () => {
+      try {
+        const session = await navigator.xr.requestSession(mode, { optionalFeatures: ['local-floor', 'bounded-floor'] });
+        renderer.xr.setReferenceSpaceType('local-floor');
+        await renderer.xr.setSession(session);
+      } catch (e) { toast('AR/VR nicht startbar: ' + e.message); }
+    });
+  }
+}
+const xrSaved = {};
+renderer.xr.addEventListener('sessionstart', () => {
+  const blend = renderer.xr.getSession().environmentBlendMode;   // 'opaque' = VR, sonst AR mit Kamerabild
+  xrSaved.bg = scene.background; xrSaved.near = camera.near; xrSaved.far = camera.far; xrSaved.enabled = controls.enabled;
+  if (blend !== 'opaque') scene.background = null;             // Passthrough: kein Hintergrund malen
+  scene.scale.setScalar(XR_SCALE);
+  scene.position.set(-150 * XR_SCALE, 0.7, -1.8);              // Boxmitte etwa 1,2 m hoch, 1,2 m vor dir
+  camera.near = 0.05; camera.far = 100; camera.updateProjectionMatrix();
+  controls.enabled = false;
+});
+renderer.xr.addEventListener('sessionend', () => {
+  scene.background = xrSaved.bg;
+  scene.scale.setScalar(1); scene.position.set(0, 0, 0);
+  camera.near = xrSaved.near; camera.far = xrSaved.far; camera.updateProjectionMatrix();
+  controls.enabled = xrSaved.enabled;
+});
+xrInit();
+
+/* ---------- Netzwerk (nmap): Ergebnisse als Ast im Visualizer ----------
+   nmap selbst läuft nicht im Browser. tools/Scan-OwnNetwork.ps1 startet es gegen eigene Geräte und
+   schreibt eine XML-Datei (nmap -oX), die hier importiert wird: Rechner → Ports mit Dienst und Status. */
+const NET_RISKY = { 21: 'FTP', 22: 'SSH', 23: 'Telnet', 135: 'RPC', 139: 'NetBIOS', 445: 'SMB', 1433: 'MSSQL', 2375: 'Docker-API', 3306: 'MySQL', 3389: 'RDP', 5432: 'PostgreSQL', 5900: 'VNC', 6379: 'Redis', 9200: 'Elasticsearch', 11434: 'Ollama', 27017: 'MongoDB' };
+function nmapToTree(xmlText) {
+  const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
+  if (doc.querySelector('parsererror') || doc.documentElement.nodeName !== 'nmaprun') throw new Error('keine nmap-XML (nmap -oX)');
+  const start = +doc.documentElement.getAttribute('start') * 1000;
+  const when = start ? new Date(start).toLocaleString('de-DE') : 'unbekannt';
+  let open = 0, risky = 0;
+  const hosts = [...doc.querySelectorAll('host')].map((h) => {
+    const ip = h.querySelector('address[addrtype="ipv4"], address')?.getAttribute('addr') || '?';
+    const name = h.querySelector('hostname')?.getAttribute('name') || '';
+    const up = h.querySelector('status')?.getAttribute('state') === 'up';
+    const loop = /^127\./.test(ip);
+    const os = h.querySelector('osmatch')?.getAttribute('name') || '';
+    const ports = [...h.querySelectorAll('port')].map((p) => {
+      const state = p.querySelector('state')?.getAttribute('state') || '?';
+      const num = +p.getAttribute('portid'), proto = p.getAttribute('protocol') || 'tcp';
+      const sv = p.querySelector('service');
+      const svc = sv?.getAttribute('name') || '?', prod = [sv?.getAttribute('product'), sv?.getAttribute('version')].filter(Boolean).join(' ');
+      const isRisky = state === 'open' && NET_RISKY[num] && !loop;
+      if (state === 'open') open++;
+      if (isRisky) risky++;
+      const node = {
+        n: `${num}/${proto} ${svc}`, p: `${ip}:${num}`,
+        s: state === 'closed' ? 'archiv' : isRisky ? 'risiko' : state === 'open' ? (NET_RISKY[num] ? 'info' : 'live') : 'offen',
+        m: `${state}${prod ? ' · ' + prod : ''}`,
+        d: `${ip}${name ? ' (' + name + ')' : ''}: ${proto}/${num} ${state}, Dienst ${svc}${prod ? ' (' + prod + ')' : ''}.${NET_RISKY[num] ? ' Bekannter Fernzugriffs- oder Datendienst: ' + NET_RISKY[num] + '.' : ''}`,
+      };
+      if (isRisky) node.z = ['haerten', `${NET_RISKY[num]} ist von anderen Geräten erreichbar. Nur behalten, wenn bewusst genutzt, sonst Dienst abschalten oder per Firewall auf vertraute Adressen beschränken.`];
+      return node;
+    });
+    return {
+      n: `${ip}${name ? ' (' + name + ')' : ''}`, s: up ? 'live' : 'archiv', p: ip,
+      m: `${ports.filter((x) => x.m.startsWith('open')).length} offene Ports`,
+      d: `${up ? 'Erreichbar' : 'Nicht erreichbar'}${os ? ', vermutlich ' + os : ''}.`, c: ports,
+    };
+  });
+  return {
+    n: `nmap ${when}`, s: 'ordner', p: `nmap/${start || 0}`,
+    m: `${hosts.length} Hosts · ${open} offene Ports · ${risky} Risiko`,
+    d: `Import aus nmap-XML (${doc.documentElement.getAttribute('scanner') || 'nmap'} ${doc.documentElement.getAttribute('version') || ''}).`, c: hosts,
+  };
+}
+function netAttach(text) {
+  try { attachAndShow(state.selected || state.axes[0].root, nmapToTree(text)); }
+  catch (e) { toast('nmap-Datei nicht lesbar: ' + e.message); }
+}
+$('netToggle').addEventListener('click', () => toggleLeft('net'));
+$('netClose').addEventListener('click', () => { $('net').hidden = true; });
+$('netImport').addEventListener('click', () => pickFile('nmap'));
+$('netSample').addEventListener('click', async () => {
+  try { netAttach(await (await fetch('data/nmap-beispiel.xml')).text()); } catch (e) { toast('Beispiel nicht ladbar: ' + e.message); }
+});
+
 /* ---------- Ebenen-Stufen 1-4 ---------- */
 function setStufe(n, instant = false) {
   state.stufe = Math.min(4, Math.max(1, n));
@@ -1183,7 +1359,7 @@ $('fltReset').addEventListener('click', () => {
 });
 function toggleLeft(id, onOpen) {
   const el = $(id), open = el.hidden;
-  for (const x of ['lex', 'ms', 'flt', 'ob']) $(x).hidden = true;
+  for (const x of ['lex', 'ms', 'flt', 'ob', 'net']) $(x).hidden = true;
   el.hidden = !open;
   if (open && onOpen) onOpen();
 }
@@ -2334,7 +2510,7 @@ function snapshot(nested = false) {
   }
   return {
     v: 1, savedAt: new Date().toISOString(),
-    scale: S, layout: LAYOUT, sectors: sectorPref.on, stufe: state.stufe, home: state.home,
+    scale: S, alpha: state.alpha, declutter: state.declutter, layout: LAYOUT, sectors: sectorPref.on, stufe: state.stufe, home: state.home,
     filter: { q: state.filter.q, st: [...state.filter.st], dev: [...state.filter.dev], linked: state.filter.linked, axes: state.filter.axes },
     dev: state.dev, editor: state.editor, obsidian: state.obsidian, intentOk: [...state.intentOk], audit: state.audit, links: state.links.map(({ a, b, label }) => ({ a, b, label })),
     lock: state.lock, depth: state.depth, labelDepth: state.labelDepth,

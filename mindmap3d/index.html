@@ -169,6 +169,13 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #monp .irow{display:flex;gap:6px;align-items:center}
 #monp .irow .mrow{flex:1}
 #monp .irow button:not(.mrow){padding:2px 8px;font-size:11px}
+#net{position:absolute;top:10px;left:10px;width:340px;max-height:calc(100% - 20px);overflow:auto;display:flex;flex-direction:column;gap:8px;background:color-mix(in srgb,var(--surface) 94%,transparent);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+#net[hidden]{display:none}
+#net .row{display:flex;gap:6px;align-items:center}
+#net .hint{margin:0;color:var(--muted);font-size:12px}
+#net code{font-family:ui-monospace,monospace;font-size:11.5px}
+#declutterToggle[aria-pressed=true]{background:var(--ink);color:var(--bg)}
+#alphaR{width:90px}
 @media (max-width:760px){#panel{width:auto;left:10px;top:auto;bottom:10px;max-height:45%}#hud{display:none}}
 </style>
 </head>
@@ -203,6 +210,9 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
       <button type="button" id="linksToggle" title="Verknüpfungen bearbeiten">Verknüpfungen</button>
       <span class="grp"><button type="button" id="jitToggle" aria-pressed="false" title="Taste J oder ^: Knoten entstehen, wenn du sie ansiehst, und verschwinden, wenn du wegschaust">JIT-Sicht</button><input id="jitR" type="range" min="80" max="600" value="260" hidden title="Reichweite der Sicht"></span>
       <span class="grp"><button type="button" id="lensToggle" aria-pressed="false" title="Taste O: Linse am Mauszeiger, dunkelt den Rest ab und beschriftet nur die Knoten darin">Objektiv</button><input id="lensR" type="range" min="60" max="420" value="170" hidden title="Linsengröße"></span>
+      <button type="button" id="netToggle" title="nmap-Ergebnisse (Rechner und Ports) als Ast importieren">Netzwerk</button>
+      <span class="grp"><button type="button" id="declutterToggle" aria-pressed="true" title="Beschriftungen, die sich überdecken oder zu klein sind, ausblenden">Entzerren</button><label for="alphaR">Durchsicht</label><input id="alphaR" type="range" min="20" max="100" value="100" title="Knoten durchsichtig machen, um Überdeckungen aufzulösen"></span>
+      <button type="button" id="xrVr" hidden title="Als VR-Tischmodell ansehen">VR</button><button type="button" id="xrAr" hidden title="Als AR-Tischmodell ansehen">AR</button>
       <button type="button" id="sectorToggle" aria-pressed="true" title="Die drei 120°-Sektoren der Äste ein-/ausblenden">Sektoren</button>
       <button type="button" id="fltToggle" title="Knoten dynamisch filtern">Filter</button>
       <button type="button" id="msToggle" title="Zwischenstände markieren und Fortschritt vergleichen">Meilensteine</button>
@@ -270,6 +280,13 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
       <div class="k">Export</div>
       <p class="hint">Schreibt eine Notiz je Knoten mit Tags, Status, Dev-Stand und <code>[[Links]]</code>. Gewählter Knoten samt Unterbaum, sonst der bearbeitete Stand. Es wird nur der Export-Ordner angelegt, vorhandene Notizen mit gleichem Namen werden überschrieben.</p>
       <div class="row"><button type="button" id="obExport" class="primary">Nach Obsidian exportieren …</button></div>
+    </aside>
+    <aside id="net" hidden>
+      <div class="row"><b>Netzwerk (nmap)</b><span class="spacer"></span><button type="button" id="netClose" aria-label="Schließen">×</button></div>
+      <p class="hint">Zeigt nmap-Ergebnisse als Ast: Rechner, darunter ihre Ports mit Dienst und Status. Offene Fernzugriffs- und Datendienste auf anderen Geräten (SSH, RDP, SMB, Telnet, VNC, Datenbanken …) sind als <b>Risiko</b> markiert, auf dem eigenen Rechner (127.x) nur als Info.</p>
+      <p class="hint">nmap läuft nicht im Browser. <code>tools/Scan-OwnNetwork.ps1</code> startet es nur gegen <b>eigene</b> Geräte im privaten Netz (bis /24, nach Bestätigung) und schreibt eine XML-Datei.</p>
+      <div class="row"><button type="button" id="netImport" class="primary">nmap-XML importieren …</button></div>
+      <div class="row"><button type="button" id="netSample">Beispiel laden (erfundene Werte)</button></div>
     </aside>
     <aside id="flt" hidden>
       <div class="row"><b>Filter</b><span class="spacer"></span><button type="button" id="fltClose" aria-label="Schließen">×</button></div>

@@ -20,6 +20,18 @@ Die Leiste unten (Klick öffnet Details) läuft ab dem Laden im Takt, ohne Trigg
 - Anfragen, Bestätigungen und Ergebnisse werden mit dem Zustand gespeichert und laufen in die Meilensteine ein.
 - Das Neural HUD (`systemos_neural_hud.html`) würfelt die Kohärenz mit `Math.random()` und löst nur per Knopf aus. Hier wird sie aus den Daten des Sandkastens berechnet. Das Mikrofon des HUD ist eine Attrappe und wurde nicht übernommen.
 
+## Netzwerk (nmap)
+- nmap läuft nicht im Browser. **`tools/Scan-OwnNetwork.ps1`** startet es und schreibt eine XML-Datei (`nmap -oX`). Der Button **Netzwerk** importiert sie als Ast: Rechner, darunter ihre Ports mit Dienst und Status.
+- **Bewertung:** Offene Fernzugriffs- und Datendienste (SSH, RDP, SMB, Telnet, VNC, RPC, Datenbanken, Docker-API …) auf **anderen** Geräten sind `Risiko`, auf dem eigenen Rechner (127.x) nur `Info`. Gefilterte Ports sind `Offen`, andere offene Ports `Live`. Neue Risiko-Knoten ohne Dev-Stand senken die Kohärenz im Monitor, bis du sie in den Wartebereich stellst.
+- **Schutzgeländer im Skript:** nur IP-Adressen aus privaten Netzen, keine Hostnamen, Bereiche höchstens /24, ausdrückliche Bestätigung „JA“, dass du Eigentümer oder Administrator bist, nur Ports und Diensterkennung (kein `-A`, keine Skripte, kein Ausnutzen). Es wurde ohne nmap geschrieben und ist ungetestet.
+- `data/nmap-beispiel.xml` ist eine Beispieldatei mit erfundenen Werten (Button „Beispiel laden“).
+
+## Überdeckung, Transparenz, AR/VR
+- **Überdeckung:** Die Zeile oben links zeigt, wie viele Knoten im Bild ein anderes berühren. Ab 35 % kommt ein Hinweis (Ebenen-Stufe erhöhen, Filter oder JIT-Sicht).
+- **Durchsicht:** Der Regler macht Knoten halbtransparent ohne Tiefenschreiben, damit man hindurch sieht.
+- **Entzerren:** Beschriftungen, die sich überdecken oder zu klein sind, werden ausgeblendet. Gewählte und überfahrene Knoten behalten ihr Label.
+- **AR/VR (WebXR, erster Schritt):** Die Knöpfe VR und AR erscheinen nur, wenn das Gerät eine Sitzung unterstützt. Die Szene steht dann als Tischmodell (Maßstab 1:250) etwa 1,2 m vor dir, im AR-Modus ohne Hintergrund. Man kann sich umsehen, die Bedienung mit Controllern oder Händen fehlt noch. Dieser Teil ist ungetestet, weil hier kein XR-Gerät zur Verfügung stand.
+
 ## JIT-Sicht (Knoten entstehen nach Blick)
 **JIT-Sicht** (Taste J oder ^) erzeugt Details erst, wenn du sie ansiehst, und läuft im Takt, solange der Schalter an ist.
 - Ein zugeklappter Knoten klappt auf, wenn er im Bild liegt und nah genug ist. Die Bildmitte zählt mehr als der Rand. Neue Knoten wachsen ein.
@@ -76,7 +88,7 @@ Button **Lexikon**: listet jedes Dokument (Datei-Knoten) aller Achsen, nach Ordn
 ## Zustand speichern
 - **Zustand speichern** (Strg+S): Browser-Speicher (`localStorage`), wird beim nächsten Öffnen wiederhergestellt.
 - **Export / Import:** dieselbe Momentaufnahme als JSON-Datei für den nächsten Schritt oder ein anderes Gerät.
-- Gespeichert werden Startansicht, Ebenen-Stufe, Node-Editor, Dev-Stände, Obsidian-Konfiguration, Governance-Anfragen, Filter, Verknüpfungen, aufgeklappte Knoten, verschobene Äste, angehängte Scans, Lexikon-Stand und Einstellungen.
+- Gespeichert werden Startansicht, Durchsicht, Entzerren, Ebenen-Stufe, Node-Editor, Dev-Stände, Obsidian-Konfiguration, Governance-Anfragen, Filter, Verknüpfungen, aufgeklappte Knoten, verschobene Äste, angehängte Scans, Lexikon-Stand und Einstellungen.
 
 ## Daten
 - `data/systemos.json` ist die „SystemOS Zustandskarte“ (Claude-Artifact). In `app.js` (`AXES`) hat jede Achse ein eigenes
