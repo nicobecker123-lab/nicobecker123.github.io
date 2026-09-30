@@ -6,8 +6,10 @@ Start: Repo über GitHub Pages ausliefern und `/mindmap3d/` öffnen, lokal z. B.
 ## Bedienung
 - **Kamera:** links ziehen = drehen, rechts ziehen = verschieben, Mausrad = Zoom.
 - **Knoten:** ziehen = Ast samt Unterbaum bewegen, Klick = auf-/zuklappen, Doppelklick = Kamera fokussiert.
-- **Bewegen-Modus:** Frei, oder auf Achse X / Y / Z eingeschränkt (Tasten 1–4).
-- **Ebene:** klappt alle Knoten bis zur gewählten Tiefe auf. **Labels:** bis zu welcher Tiefe Beschriftungen stehen.
+- **Bewegen-Modus:** Frei, oder auf Achse X / Y / Z eingeschränkt (Tasten X / Y / Z, nochmal drücken = frei).
+- **Ebenen-Stufen 1–4** (Tasten 1–4, oder + / −): kompakt, normal, weit, sehr weit. Die Ebenen gleiten animiert auseinander oder zusammen. Der Platz passt sich dynamisch an: Der Ebenenabstand wächst mit der Zahl sichtbarer Knoten, und der Querabstand verhindert Überlappungen.
+- **Filter:** Name/Pfad-Text, Status-/Typ-Chips (Live, Risiko, Ordner, Datei …) und Achsen X/Y/Z einzeln ein- und ausblenden. Es bleiben die Treffer samt Pfad zur Wurzel sichtbar, der Rest fällt aus dem Layout, sodass der Platz neu verteilt wird. Nicht passende Pfadknoten sind kleiner dargestellt.
+- **Tiefe:** klappt alle Knoten bis zur gewählten Tiefe auf. **Labels:** bis zu welcher Tiefe Beschriftungen stehen.
 - **Suche:** Name oder Pfad, „Weiter“ springt zum nächsten Treffer und klappt den Weg dorthin auf.
 
 ## Verknüpfungen (Node-Editor)
@@ -34,7 +36,7 @@ Button **Lexikon**: listet jedes Dokument (Datei-Knoten) aller Achsen, nach Ordn
 ## Zustand speichern
 - **Zustand speichern** (Strg+S): Browser-Speicher (`localStorage`), wird beim nächsten Öffnen wiederhergestellt.
 - **Export / Import:** dieselbe Momentaufnahme als JSON-Datei für den nächsten Schritt oder ein anderes Gerät.
-- Gespeichert werden Startansicht, Verknüpfungen, aufgeklappte Knoten, verschobene Äste, angehängte Scans, Lexikon-Stand und Einstellungen.
+- Gespeichert werden Startansicht, Ebenen-Stufe, Filter, Verknüpfungen, aufgeklappte Knoten, verschobene Äste, angehängte Scans, Lexikon-Stand und Einstellungen.
 
 ## Daten
 - `data/systemos.json` ist die „SystemOS Zustandskarte“ (Claude-Artifact). In `app.js` (`AXES`) hat jede Achse ein eigenes

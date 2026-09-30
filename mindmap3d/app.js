@@ -8,6 +8,7 @@ const GAP = 15 * S;       // Abstand zwischen zwei Ebenen entlang der Achse
 const T0 = 8 * S;         // Position der Wurzel auf der Achse
 const NODE = 1.6;         // Knotengröße relativ zum Layout (kleiner als S = mehr Zwischenraum)
 const LINK_COLOR = 0xF2C14E;
+const STUFEN = [0.6, 1, 1.6, 2.4];   // Abstandsfaktor je Ebenen-Stufe
 const GOLDEN = 2.399963;
 const STORE_KEY = 'systemos-3d-sandbox-v1';
 
@@ -123,6 +124,7 @@ function disposeSprite(sp) {
     scene.add(tag);
     for (let d = 0; d <= 6; d++) {
       const t = textSprite('E' + d, { size: 2 * S, color: '#9AA69F', weight: 500 });
+      (ax.ticks ||= []).push(t);
       t.position.copy(dir).multiplyScalar(T0 + d * GAP);
       t.position.setComponent(ax.perp[0], -3 * S);
       scene.add(t);
@@ -152,6 +154,9 @@ const state = {
   home: null,           // vom Nutzer fixierte Startansicht {p, t}
   links: [],            // freie Verknüpfungen [{id, a, b, label}] zwischen Knoten-IDs
   linkMode: false,
+  stufe: 2,             // Ebenen-Stufe 1-4 (Abstand und Platz)
+  spacing: 1,           // aktuell animierter Abstandsfaktor
+  filter: { q: '', st: new Set(), axes: { x: true, y: true, z: true } },
   milestones: [],       // markierte Zwischenstände {id, name, note, at, metrics, extra?, snap?, seed?}
 };
 let linkSeq = 0;
@@ -166,7 +171,7 @@ function build(d, parent, index, axis) {
     d, axis, parent, depth: parent ? parent.depth + 1 : 0,
     id: parent ? `${parent.id}.${index}` : axis.key,
     kids: [], off: new THREE.Vector3(), world: new THREE.Vector3(),
-    expanded: false, mesh: null, label: null, stamp: 0,
+    expanded: false, mesh: null, label: null, stamp: 0, fkeep: true, fmatch: false, fcol: false,
   };
   axis.byId.set(n.id, n);
   axis.all.push(n);
@@ -176,23 +181,67 @@ function build(d, parent, index, axis) {
 
 function spread(depth) { return S * Math.max(0.9, 3.6 * Math.pow(0.72, depth)); }
 
+/* ---------- Filter: Knoten dynamisch ein-/ausblenden ---------- */
+const filterActive = () => !!(state.filter.q.trim() || state.filter.st.size);
+
+function computeFilter() {
+  const f = state.filter, q = f.q.trim().toLowerCase(), act = filterActive();
+  state.fmatchCount = 0;
+  const walk = (n) => {
+    let keep = false;
+    for (const k of n.kids) if (walk(k)) keep = true;
+    const pass = act
+      && (!q || n.d.n.toLowerCase().includes(q) || (n.d.p || '').toLowerCase().includes(q))
+      && (!f.st.size || f.st.has(n.d.s));
+    n.fmatch = pass;
+    if (pass) state.fmatchCount++;
+    n.fkeep = !act || keep || pass;
+    return n.fkeep;
+  };
+  for (const a of state.axes) walk(a.root);
+}
+
+// Unter aktivem Filter zeigt ein Knoten automatisch alle Treffer-Pfade (außer er wurde zugeklappt).
+function shownKids(n) {
+  if (filterActive()) return n.fcol ? [] : n.kids.filter((k) => k.fkeep);
+  return n.expanded ? n.kids : [];
+}
+const isOpen = (n) => n.kids.length > 0 && shownKids(n).length > 0;
+const baseScale = (n) => nodeSize(n) * (filterActive() && !n.fmatch ? 0.6 : 1);
+
+/* Dynamische Platzadaption: Ebenenabstand wächst mit der Zahl sichtbarer Knoten der nächsten Ebene,
+   der Querabstand wird so gewählt, dass sich Nachbarn nie überlappen. */
 function layoutAxis(axis) {
   const [p, q] = axis.perp;
   const stamp = state.stamp;
   const visible = [];
+  axis.levelPos = [];
+  if (!state.filter.axes[axis.key] || !axis.root.fkeep) { axis.visible = visible; return; }
+
+  const counts = [];
+  const count = (n) => { counts[n.depth] = (counts[n.depth] || 0) + 1; for (const k of shownKids(n)) count(k); };
+  count(axis.root);
+  const sp = state.spacing;
+  axis.levelPos[0] = T0;
+  for (let d = 1; d < counts.length; d++) {
+    const crowd = Math.min(2, Math.max(0, Math.log10(1 + counts[d] / 10)));
+    axis.levelPos[d] = axis.levelPos[d - 1] + GAP * sp * (1 + 0.25 * crowd);
+  }
+
   const place = (n, pu, pv, sx, sy, sz) => {
-    const w = n.world;
     const c = [0, 0, 0];
-    c[axis.dim] = T0 + n.depth * GAP;
+    c[axis.dim] = axis.levelPos[n.depth];
     c[p] = pu; c[q] = pv;
     const shx = sx + n.off.x, shy = sy + n.off.y, shz = sz + n.off.z;
-    w.set(c[0] + shx, c[1] + shy, c[2] + shz);
+    n.world.set(c[0] + shx, c[1] + shy, c[2] + shz);
     n.stamp = stamp;
     visible.push(n);
-    if (!n.expanded || !n.kids.length) return;
-    const count = n.kids.length, s = spread(n.depth);
-    n.kids.forEach((k, i) => {
-      const r = count === 1 ? 0 : s * Math.sqrt(i + 1);
+    const kids = shownKids(n);
+    if (!kids.length) return;
+    const minDist = nodeSize(kids[0]) * 2.4;
+    const s = Math.max(spread(n.depth) * sp, minDist / 1.7);
+    kids.forEach((k, i) => {
+      const r = kids.length === 1 ? 0 : s * Math.sqrt(i + 1);
       const a = i * GOLDEN;
       place(k, pu + r * Math.cos(a), pv + r * Math.sin(a), shx, shy, shz);
     });
@@ -201,12 +250,20 @@ function layoutAxis(axis) {
   axis.visible = visible;
 }
 
+function updateTicks(axis) {
+  const lp = axis.levelPos, last = lp.length ? lp[lp.length - 1] : T0;
+  (axis.ticks || []).forEach((t, d) => {
+    t.position.setComponent(axis.dim, lp[d] ?? last + (d - (lp.length - 1 || 0)) * GAP * state.spacing);
+  });
+}
+
 function relayout() {
   state.stamp++;
   const pick = [];
   let total = 0;
   for (const axis of state.axes) {
     layoutAxis(axis);
+    updateTicks(axis);
     total += axis.visible.length;
     for (const n of axis.shown) if (n.stamp !== state.stamp) hideNode(n);
     axis.shown.clear();
@@ -217,9 +274,9 @@ function relayout() {
       if (!n.mesh) {
         n.mesh = new THREE.Mesh(sphereGeo, matFor(n.d.s));
         n.mesh.userData.node = n;
-        n.mesh.scale.setScalar(nodeSize(n));
         axis.group.add(n.mesh);
       }
+      n.mesh.scale.setScalar(baseScale(n) * (n === pointer.hover ? 1.35 : 1));
       n.mesh.visible = true;
       n.mesh.position.copy(n.world);
       pick.push(n.mesh);
@@ -230,7 +287,6 @@ function relayout() {
       updateLabel(n);
     }
     axis.lines.geometry.setAttribute('position', new THREE.BufferAttribute(seg, 3));
-    axis.lines.geometry.computeBoundingSphere();
   }
   pointer.pickables = pick;
   renderLinks();
@@ -246,11 +302,12 @@ function hideNode(n) {
 /* ---------- Labels ---------- */
 function labelText(n) {
   let t = n.d.n.length > 38 ? n.d.n.slice(0, 37) + '…' : n.d.n;
-  if (n.kids.length && !n.expanded) t = `▸ ${t} (${n.kids.length})`;
+  if (n.kids.length && !isOpen(n)) t = `▸ ${t} (${n.kids.length})`;
   return t;
 }
 function wantsLabel(n) {
-  return n.depth <= state.labelDepth || n === state.selected || n === state.hit || n === pointer.hover;
+  return n.depth <= state.labelDepth || n === state.selected || n === state.hit || n === pointer.hover
+    || (n.fmatch && state.fmatchCount <= 60);
 }
 function updateLabel(n) {
   if (n.stamp !== state.stamp || !wantsLabel(n)) return disposeLabel(n);
@@ -330,6 +387,11 @@ async function buildAxes(saved) {
     setLock(saved.lock || 'free');
     setSlider('depth', saved.depth ?? 2);
     setSlider('labelDepth', saved.labelDepth ?? 1);
+    setStufe(saved.stufe || 2, true);
+    state.filter.q = saved.filter?.q || '';
+    state.filter.st = new Set(saved.filter?.st || []);
+    state.filter.axes = { x: true, y: true, z: true, ...(saved.filter?.axes || {}) };
+    fltSync();
     state.home = saved.scale === S ? saved.home || null : null;
     if (state.home) {
       camera.position.fromArray(state.home.p);
@@ -344,9 +406,11 @@ async function buildAxes(saved) {
     expandToDepth(state.depth);
   }
   fitSliderMax();
+  computeFilter();
   relayout();
   lexRebuild();
   renderLinkPanel();
+  fltBuild();
 }
 
 function attachTree(parent, tree) {
@@ -357,7 +421,7 @@ function attachTree(parent, tree) {
 }
 
 function expandToDepth(d) {
-  for (const a of state.axes) for (const n of a.all) { n.expanded = n.kids.length > 0 && n.depth < d; disposeLabel(n); }
+  for (const a of state.axes) for (const n of a.all) { n.expanded = n.kids.length > 0 && n.depth < d; n.fcol = !n.expanded; disposeLabel(n); }
 }
 function maxDepth() {
   return Math.max(...state.axes.flatMap((a) => a.all.map((n) => n.depth)));
@@ -384,8 +448,8 @@ function setHover(n, ev) {
   const prev = pointer.hover;
   if (prev !== n) {
     pointer.hover = n;
-    if (prev) { prev.mesh.scale.setScalar(nodeSize(prev)); disposeLabelIfUnwanted(prev); }
-    if (n) { n.mesh.scale.setScalar(nodeSize(n) * 1.35); updateLabel(n); }
+    if (prev) { prev.mesh.scale.setScalar(baseScale(prev)); disposeLabelIfUnwanted(prev); }
+    if (n) { n.mesh.scale.setScalar(baseScale(n) * 1.35); updateLabel(n); }
     canvas.style.cursor = n ? 'pointer' : '';
   }
   if (n && ev && !pointer.down) {
@@ -517,7 +581,7 @@ function onDblClick(ev) {
 
 function toggle(n) {
   if (!n.kids.length) return;
-  n.expanded = !n.expanded;
+  if (filterActive()) n.fcol = isOpen(n); else n.expanded = !n.expanded;
   disposeLabel(n);
   relayout();
   markDirty();
@@ -633,8 +697,10 @@ function attachAndShow(parent, tree) {
   const k = attachTree(parent, tree);
   state.attachLog.push({ axis: parent.axis.key, parentId: parent.id, tree });
   fitSliderMax();
+  computeFilter();
   relayout();
   lexRebuild();
+  fltBuild();
   select(parent);
   focusOn(k.world, 120);
   markDirty();
@@ -642,6 +708,81 @@ function attachAndShow(parent, tree) {
 }
 
 
+
+
+/* ---------- Ebenen-Stufen 1-4 ---------- */
+function setStufe(n, instant = false) {
+  state.stufe = Math.min(4, Math.max(1, n));
+  state.spacingTarget = STUFEN[state.stufe - 1];
+  if (instant) state.spacing = state.spacingTarget;
+  document.querySelectorAll('#stufe button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.stufe === state.stufe)));
+  if (!instant) { markDirty(); toast(`Ebenen-Stufe ${state.stufe}`); }
+}
+document.querySelectorAll('#stufe button').forEach((b) => b.addEventListener('click', () => setStufe(+b.dataset.stufe)));
+
+/* ---------- Filter-Panel ---------- */
+function fltBuild() {
+  const counts = {};
+  let total = 0;
+  for (const a of state.axes) for (const n of a.all) { counts[n.d.s || '–'] = (counts[n.d.s || '–'] || 0) + 1; total++; }
+  const box = $('fltChips');
+  box.replaceChildren();
+  for (const st of Object.keys(counts).sort((a, b) => counts[b] - counts[a])) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'chip';
+    b.dataset.st = st;
+    b.setAttribute('aria-pressed', String(state.filter.st.has(st)));
+    b.style.setProperty('--c', STATUS[st] || STATUS.info);
+    const dot = document.createElement('i');
+    b.append(dot, `${STATUS_TEXT[st] || st} ${counts[st]}`);
+    b.addEventListener('click', () => {
+      state.filter.st.has(st) ? state.filter.st.delete(st) : state.filter.st.add(st);
+      fltApply();
+    });
+    box.append(b);
+  }
+  $('fltInfo').dataset.total = total;
+  fltSync();
+}
+function fltSync() {
+  $('fltQ').value = state.filter.q;
+  document.querySelectorAll('#fltChips .chip').forEach((b) => b.setAttribute('aria-pressed', String(state.filter.st.has(b.dataset.st))));
+  document.querySelectorAll('#fltAxes button').forEach((b) => b.setAttribute('aria-pressed', String(state.filter.axes[b.dataset.axis])));
+}
+function fltApply() {
+  for (const a of state.axes) for (const n of a.all) n.fcol = false;
+  computeFilter();
+  relayout();
+  fltSync();
+  fltInfoUpdate();
+  markDirty();
+}
+function fltInfoUpdate() {
+  const vis = state.axes.reduce((t, a) => t + a.visible.length, 0);
+  $('fltInfo').textContent = filterActive()
+    ? `${state.fmatchCount} Treffer · ${vis} von ${$('fltInfo').dataset.total} Knoten sichtbar`
+    : `${vis} von ${$('fltInfo').dataset.total} Knoten sichtbar`;
+}
+$('fltQ').addEventListener('input', (e) => { state.filter.q = e.target.value; fltApply(); });
+document.querySelectorAll('#fltAxes button').forEach((b) => b.addEventListener('click', () => {
+  state.filter.axes[b.dataset.axis] = !state.filter.axes[b.dataset.axis];
+  fltApply();
+}));
+$('fltReset').addEventListener('click', () => {
+  state.filter.q = '';
+  state.filter.st.clear();
+  state.filter.axes = { x: true, y: true, z: true };
+  fltApply();
+});
+function toggleLeft(id, onOpen) {
+  const el = $(id), open = el.hidden;
+  for (const x of ['lex', 'ms', 'flt']) $(x).hidden = true;
+  el.hidden = !open;
+  if (open && onOpen) onOpen();
+}
+$('fltToggle').addEventListener('click', () => toggleLeft('flt', fltInfoUpdate));
+$('fltClose').addEventListener('click', () => { $('flt').hidden = true; });
 
 /* ---------- Verknüpfungen (Node-Editor) ---------- */
 const nodeById = (id) => state.axes.map((a) => a.byId.get(id)).find(Boolean);
@@ -871,7 +1012,7 @@ function lexStep(dir, capture) {
   lexGo(next);
 }
 
-$('lexToggle').addEventListener('click', () => { const h = $('lex').hidden; $('lex').hidden = !h; if (h) { $('ms').hidden = true; lexRender(); } });
+$('lexToggle').addEventListener('click', () => toggleLeft('lex', lexRender));
 $('lexClose').addEventListener('click', () => { $('lex').hidden = true; });
 $('lexQ').addEventListener('input', () => { lex.shown = 300; lexRender(); });
 $('lexOpen').addEventListener('change', () => { lex.shown = 300; lexRender(); });
@@ -1024,11 +1165,7 @@ function renderMilestones() {
   }
 }
 
-$('msToggle').addEventListener('click', () => {
-  const h = $('ms').hidden;
-  $('ms').hidden = !h;
-  if (h) { $('lex').hidden = true; renderMilestones(); }
-});
+$('msToggle').addEventListener('click', () => toggleLeft('ms', renderMilestones));
 $('msClose').addEventListener('click', () => { $('ms').hidden = true; });
 $('msAdd').addEventListener('click', () => {
   const name = $('msName').value.trim() || `Zwischenstand ${new Date().toLocaleDateString('de-DE')}`;
@@ -1046,7 +1183,8 @@ function snapshot(nested = false) {
   }
   return {
     v: 1, savedAt: new Date().toISOString(),
-    scale: S, home: state.home, links: state.links.map(({ a, b, label }) => ({ a, b, label })),
+    scale: S, stufe: state.stufe, home: state.home,
+    filter: { q: state.filter.q, st: [...state.filter.st], axes: state.filter.axes }, links: state.links.map(({ a, b, label }) => ({ a, b, label })),
     lock: state.lock, depth: state.depth, labelDepth: state.labelDepth,
     expanded, offs, attach: state.attachLog, captured: [...state.captured],
     ...(nested ? {} : { milestones: state.milestones.filter((m) => !m.seed) }),
@@ -1085,8 +1223,11 @@ addEventListener('beforeunload', (e) => { if (dirty) e.preventDefault(); });
 addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); return save(); }
   if (e.target.matches('input')) return;
-  const map = { 1: 'free', 2: 'x', 3: 'y', 4: 'z' };
-  if (map[e.key]) { setLock(map[e.key]); markDirty(); }
+  const k = e.key.toLowerCase();
+  if (['1', '2', '3', '4'].includes(k)) setStufe(+k);
+  else if (k === '+' || k === '=') setStufe(state.stufe + 1);
+  else if (k === '-') setStufe(state.stufe - 1);
+  else if (['x', 'y', 'z'].includes(k)) { setLock(state.lock === k ? 'free' : k); markDirty(); }
   else if (e.key === 'f' && state.selected) focusOn(state.selected.world);
   else if (e.key.toLowerCase() === 'l') setLinkMode(!state.linkMode);
   else if (e.key === 'Escape') { setLinkMode(false); select(null); }
@@ -1112,6 +1253,11 @@ new ResizeObserver(resize).observe(canvas.parentElement);
 resize();
 
 renderer.setAnimationLoop(() => {
+  if (state.spacingTarget !== undefined && Math.abs(state.spacingTarget - state.spacing) > 0.002) {
+    state.spacing += (state.spacingTarget - state.spacing) * 0.2;
+    if (Math.abs(state.spacingTarget - state.spacing) <= 0.002) state.spacing = state.spacingTarget;
+    relayout();
+  }
   if (fly) {
     const k = Math.min(1, (performance.now() - fly.t0) / fly.ms);
     const e = 1 - Math.pow(1 - k, 3);

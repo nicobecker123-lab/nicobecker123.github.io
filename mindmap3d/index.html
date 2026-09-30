@@ -87,6 +87,16 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #msList .act{display:flex;gap:6px}
 #msList .act button{padding:4px 8px}
 @media (max-width:760px){#ms{width:auto;right:10px;max-height:42%}}
+#flt{position:absolute;top:10px;left:10px;width:330px;max-height:calc(100% - 20px);overflow:auto;display:flex;flex-direction:column;gap:8px;background:color-mix(in srgb,var(--surface) 94%,transparent);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+#flt[hidden]{display:none}
+#flt .row{display:flex;gap:6px;align-items:center}
+#flt .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+#flt .hint{color:var(--muted);font-size:12px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:5px 9px}
+.chip i{width:9px;height:9px;border-radius:50%;background:var(--c);display:inline-block}
+.chip[aria-pressed=true]{border-color:var(--c);box-shadow:inset 0 0 0 1px var(--c)}
+@media (max-width:760px){#flt{width:auto;right:10px;max-height:42%}}
 @media (max-width:760px){#panel{width:auto;left:10px;top:auto;bottom:10px;max-height:45%}#hud{display:none}}
 </style>
 </head>
@@ -96,19 +106,28 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <h1>SystemOS 3D-Sandkasten</h1>
     <div class="grp"><label>Bewegen</label>
       <div class="seg" id="lock" role="group" aria-label="Bewegungsachse">
-        <button type="button" data-lock="free" aria-pressed="true" title="Taste 1">Frei</button>
-        <button type="button" data-lock="x" aria-pressed="false" title="Taste 2">X</button>
-        <button type="button" data-lock="y" aria-pressed="false" title="Taste 3">Y</button>
-        <button type="button" data-lock="z" aria-pressed="false" title="Taste 4">Z</button>
+        <button type="button" data-lock="free" aria-pressed="true" title="Frei">Frei</button>
+        <button type="button" data-lock="x" aria-pressed="false" title="Taste X">X</button>
+        <button type="button" data-lock="y" aria-pressed="false" title="Taste Y">Y</button>
+        <button type="button" data-lock="z" aria-pressed="false" title="Taste Z">Z</button>
       </div>
     </div>
-    <div class="grp"><label for="depth">Ebene</label><input id="depth" type="range" min="0" max="8" value="2"><span class="val" id="depthV">2</span></div>
+    <div class="grp"><label>Ebenen</label>
+      <div class="seg" id="stufe" role="group" aria-label="Ebenen-Stufe">
+        <button type="button" data-stufe="1" aria-pressed="false" title="Taste 1: kompakt">1</button>
+        <button type="button" data-stufe="2" aria-pressed="true" title="Taste 2: normal">2</button>
+        <button type="button" data-stufe="3" aria-pressed="false" title="Taste 3: weit">3</button>
+        <button type="button" data-stufe="4" aria-pressed="false" title="Taste 4: sehr weit">4</button>
+      </div>
+    </div>
+    <div class="grp"><label for="depth">Tiefe</label><input id="depth" type="range" min="0" max="8" value="2"><span class="val" id="depthV">2</span></div>
     <div class="grp"><label for="labelDepth">Labels</label><input id="labelDepth" type="range" min="0" max="8" value="1"><span class="val" id="labelV">1</span></div>
     <div class="grp"><input id="q" type="search" placeholder="Knoten suchen …" autocomplete="off"><button type="button" id="qNext">Weiter</button></div>
     <span class="spacer"></span>
     <div class="grp">
       <button type="button" id="linkMode" aria-pressed="false" title="Taste L: von Knoten zu Knoten ziehen, um sie zu verknüpfen">Verknüpfen</button>
       <button type="button" id="linksToggle" title="Verknüpfungen bearbeiten">Verknüpfungen</button>
+      <button type="button" id="fltToggle" title="Knoten dynamisch filtern">Filter</button>
       <button type="button" id="msToggle" title="Zwischenstände markieren und Fortschritt vergleichen">Meilensteine</button>
       <button type="button" id="lexToggle" title="Alle Dokumente erfassen, Schritt für Schritt">Lexikon</button>
       <button type="button" id="attach" title="JSON aus tools/scan_folder.py an den gewählten Knoten hängen">Ordner-Scan anhängen</button>
@@ -124,13 +143,27 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
   <div id="stage">
     <canvas id="c"></canvas>
     <div id="tip"></div>
-    <div id="hud"><b>Maus:</b> links ziehen = drehen · rechts ziehen = verschieben · Rad = Zoom · <b>Knoten:</b> ziehen = Ast bewegen · Klick = auf-/zuklappen · Doppelklick = fokussieren · Tasten 1–4 = Achse · <b>Verknüpfen:</b> Taste L oder Shift halten, dann von Knoten zu Knoten ziehen</div>
+    <div id="hud"><b>Maus:</b> links ziehen = drehen · rechts ziehen = verschieben · Rad = Zoom · <b>Knoten:</b> ziehen = Ast bewegen · Klick = auf-/zuklappen · Doppelklick = fokussieren · Tasten 1–4 = Ebenen-Stufe · X/Y/Z = Achse sperren · <b>Verknüpfen:</b> Taste L oder Shift halten, dann von Knoten zu Knoten ziehen</div>
     <aside id="lex" hidden>
       <div class="row"><b>Lexikon</b><span id="lexProg"></span><button type="button" id="lexClose" aria-label="Schließen">×</button></div>
       <div class="row"><input id="lexQ" type="search" placeholder="Dokument oder Ordner filtern …" autocomplete="off"><label><input type="checkbox" id="lexOpen"> nur offene</label></div>
       <div class="row"><button type="button" id="lexPrev">‹ Zurück</button><button type="button" id="lexDone" class="primary">Erfassen &amp; weiter</button><button type="button" id="lexSkip">Weiter ›</button></div>
       <div id="lexList"></div>
       <div class="row"><button type="button" id="lexExport">Als Markdown exportieren</button></div>
+    </aside>
+    <aside id="flt" hidden>
+      <div class="row"><b>Filter</b><span class="spacer"></span><button type="button" id="fltClose" aria-label="Schließen">×</button></div>
+      <input id="fltQ" type="search" placeholder="Name oder Pfad enthält …" autocomplete="off">
+      <div class="k">Status / Typ</div>
+      <div id="fltChips" class="chips"></div>
+      <div class="k">Achsen</div>
+      <div id="fltAxes" class="chips">
+        <button type="button" class="chip" data-axis="x" style="--c:#E4674F" aria-pressed="true"><i></i>X</button>
+        <button type="button" class="chip" data-axis="y" style="--c:#4DB57C" aria-pressed="true"><i></i>Y</button>
+        <button type="button" class="chip" data-axis="z" style="--c:#5FA6B8" aria-pressed="true"><i></i>Z</button>
+      </div>
+      <div id="fltInfo" class="hint"></div>
+      <div class="row"><button type="button" id="fltReset">Filter zurücksetzen</button></div>
     </aside>
     <aside id="ms" hidden>
       <div class="row"><b>Meilensteine</b><span class="spacer"></span><button type="button" id="msClose" aria-label="Schließen">×</button></div>
